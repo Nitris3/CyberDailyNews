@@ -6,11 +6,22 @@ database:
   url: sqlite:///data/ccip.db
   echo: false
 
+summarization:
+  provider: ollama
+  model: llama3.2:3b
+  endpoint: http://127.0.0.1:11434
+  timeout_seconds: 60
+  fallback_to_rules: true
+
 email:
   sender: cyber-intelligence@example.com
   recipients:
     - security-team@example.com
   subject: "Daily Cyber Intelligence - {{ report_date }}"
+  template_directory: templates/email
+  html_template: daily_news.html.j2
+  text_template: daily_news.txt.j2
+  max_items: 25
   smtp:
     host: localhost
     port: 1025

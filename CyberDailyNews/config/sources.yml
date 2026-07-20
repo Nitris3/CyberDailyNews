@@ -7,13 +7,13 @@ sources:
     url: https://www.cisa.gov/cybersecurity-advisories/all.xml
     category: Government Advisories
     priority: 5
-    enabled: true
+    enabled: false  # Returns HTTP 403 from the deployment runtime; KEV remains active.
   - name: CISA News
     kind: rss
     url: https://www.cisa.gov/news.xml
     category: Government Advisories
     priority: 4
-    enabled: true
+    enabled: false  # Returns HTTP 403 from the deployment runtime.
   - name: CISA Known Exploited Vulnerabilities
     kind: api
     url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
@@ -60,7 +60,7 @@ sources:
     enabled: true
   - name: Microsoft Security Response Center
     kind: rss
-    url: https://msrc.microsoft.com/blog/feed/
+    url: https://msrc.microsoft.com/feed
     category: Vendor Advisories
     priority: 5
     enabled: true
@@ -84,7 +84,7 @@ sources:
     enabled: true
   - name: Fortinet Threat Research
     kind: rss
-    url: https://www.fortinet.com/blog/threat-research/rss.xml
+    url: https://feeds.fortinet.com/fortinet/blog/threat-research
     category: Threat Intelligence
     priority: 4
     enabled: true
@@ -114,7 +114,7 @@ sources:
     enabled: true
   - name: Tenable Blog
     kind: rss
-    url: https://www.tenable.com/blog/rss.xml
+    url: https://www.tenable.com/blog/feed
     category: Vulnerabilities
     priority: 4
     enabled: true

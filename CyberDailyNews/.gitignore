@@ -9,4 +9,5 @@ __pycache__/
 htmlcov/
 data/*.db
 logs/*.log
+reports/*.html
 .env

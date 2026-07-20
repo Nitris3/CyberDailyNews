@@ -1,0 +1,76 @@
+{#
+  END-USER EMAIL TEMPLATE
+  Edit this complete file to apply your branding and layout.
+
+  Available values:
+    report.report_date
+    report.items
+    item.title, item.url, item.summary, item.category, item.source,
+    item.severity.value, item.score, item.published_at
+
+  Keep styles inline for broad email-client compatibility.
+#}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light only">
+    <title>Daily Cyber Intelligence</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#172033">
+    <div style="display:none;max-height:0;overflow:hidden;color:transparent">
+      Daily cyber-intelligence briefing for {{ report.report_date }}.
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f4f6">
+      <tr>
+        <td align="center" style="padding:24px 12px">
+          <table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" style="max-width:680px;width:100%;background:#ffffff;border-collapse:collapse">
+            <tr>
+              <td style="background:#142b4a;color:#ffffff;padding:28px 32px">
+                {# Replace this block with your organization logo and header. #}
+                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Cyber Intelligence</div>
+                <h1 style="margin:8px 0 0;font-size:28px;line-height:1.2">Daily Cyber Intelligence</h1>
+                <div style="margin-top:8px;font-size:14px">{{ report.report_date.strftime('%B %d, %Y') }}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 32px;background:#eaf0f7;font-size:14px;line-height:1.5">
+                Prioritized public-source reporting selected for security operations review.
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 32px 24px">
+              {% if report.items %}
+                {% for item in report.items %}
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-bottom:1px solid #d9dee7;border-collapse:collapse">
+                  <tr>
+                    <td style="padding:20px 0">
+                      <div style="font-size:11px;color:#52647a;text-transform:uppercase;letter-spacing:.5px">
+                        {{ item.category }} · {{ item.source }} · {{ item.severity.value }} · score {{ '%.1f'|format(item.score) }}
+                      </div>
+                      <h2 style="font-size:20px;line-height:1.3;margin:7px 0">
+                        <a href="{{ item.url }}" style="color:#075da8;text-decoration:underline">{{ item.title }}</a>
+                      </h2>
+                      <p style="font-size:15px;line-height:1.55;margin:0;color:#26354a">{{ item.summary }}</p>
+                    </td>
+                  </tr>
+                </table>
+                {% endfor %}
+              {% else %}
+                <p style="padding:20px 0;line-height:1.5">No qualifying cyber-intelligence items were identified for this report.</p>
+              {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 32px;background:#142b4a;color:#dce5ef;font-size:12px;line-height:1.5">
+                {# Replace this block with your required footer, contacts, and legal text. #}
+                This automated briefing uses public sources. Validate intelligence before taking action.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

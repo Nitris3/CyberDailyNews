@@ -24,6 +24,15 @@ class DatabaseConfig(StrictModel):
     echo: bool = False
 
 
+class SummarizationConfig(StrictModel):
+    provider: Literal["rules", "ollama", "copilot"] = "rules"
+    model: str = "llama3.2:3b"
+    endpoint: str = "http://127.0.0.1:11434"
+    timeout_seconds: float = Field(default=60, gt=0)
+    fallback_to_rules: bool = True
+    copilot_binary: str = "copilot"
+
+
 class SMTPConfig(StrictModel):
     host: str
     port: int = Field(default=587, ge=1, le=65535)
@@ -37,6 +46,10 @@ class EmailConfig(StrictModel):
     sender: str
     recipients: tuple[str, ...]
     subject: str = "Daily Cyber Intelligence - {{ report_date }}"
+    template_directory: str = "templates/email"
+    html_template: str = "daily_news.html.j2"
+    text_template: str = "daily_news.txt.j2"
+    max_items: int = Field(default=25, ge=1, le=200)
     smtp: SMTPConfig
 
     @field_validator("recipients")
@@ -59,6 +72,7 @@ class SourceConfig(StrictModel):
 class Settings(StrictModel):
     app: AppConfig = AppConfig()
     database: DatabaseConfig = DatabaseConfig()
+    summarization: SummarizationConfig = SummarizationConfig()
     email: EmailConfig
     source_files: tuple[str, ...] = ()
     sources: tuple[SourceConfig, ...] = ()

@@ -17,6 +17,26 @@ control and provide them with `CCIP_SMTP_USERNAME` and `CCIP_SMTP_PASSWORD`.
 The curated feed registry is maintained separately in `config/sources.yml` and is
 referenced by the main configuration through `source_files`.
 
+## Email template
+
+The complete end-user HTML template is `templates/email/daily_news.html.j2`. Edit that
+file directly to add organization branding, header, footer, and email-safe inline styles.
+Its opening comment documents every available Jinja value. The plain-text fallback is
+next to it at `templates/email/daily_news.txt.j2`.
+
+Render a report without sending email:
+
+```powershell
+& ".\.venv\Scripts\python.exe" -m ccip.cli preview --date 2026-07-20
+```
+
+## Generative summaries
+
+`summarization.provider` supports `ollama`, `copilot`, or `rules`. Ollama uses the local
+endpoint configured in `ccip.yml`. Copilot invokes an installed and signed-in Copilot CLI
+non-interactively and grants it no file, shell, or URL tools. When configured,
+`fallback_to_rules` keeps collection operational if the model is unavailable.
+
 The HTML establishes the render contract and email-safe structure. The
 `report.report_date` and `report.items` data contract is stable.
 

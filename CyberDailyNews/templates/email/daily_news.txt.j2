@@ -1,7 +1,7 @@
 Daily Cyber Intelligence — {{ report.report_date }}
 {% for item in report.items %}
 {{ item.title }}
-{{ item.category }} | {{ item.source }} | {{ item.severity.value }}
+{{ item.category }} | {{ item.source }} | {{ item.severity.value }} | {{ item.score }}
 {{ item.summary }}
 {{ item.url }}
 {% else %}

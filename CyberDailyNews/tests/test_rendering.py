@@ -6,7 +6,7 @@ from ccip.rendering import ReportRenderer
 
 
 def test_renderer_escapes_untrusted_content_and_builds_subject() -> None:
-    template_directory = Path(__file__).parents[1] / "templates"
+    template_directory = Path(__file__).parents[1] / "templates" / "email"
     renderer = ReportRenderer(template_directory)
     item = IntelligenceItem(
         external_id="1",
