@@ -13,7 +13,7 @@ class ReportRenderer:
     def __init__(self, template_directory: str | Path) -> None:
         self.environment = Environment(
             loader=FileSystemLoader(template_directory),
-            autoescape=select_autoescape(("html", "xml")),
+            autoescape=select_autoescape(("html", "xml", "j2"), default=True),
             undefined=StrictUndefined,
             trim_blocks=True,
             lstrip_blocks=True,
@@ -27,4 +27,3 @@ class ReportRenderer:
 
     def render_subject(self, subject_template: str, report: DailyReport) -> str:
         return self.environment.from_string(subject_template).render(report_date=report.report_date)
-

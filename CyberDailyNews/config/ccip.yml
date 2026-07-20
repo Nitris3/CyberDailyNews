@@ -10,7 +10,7 @@ email:
   sender: cyber-intelligence@example.com
   recipients:
     - security-team@example.com
-  subject: "CSAA Daily Cyber News - {{ report_date }}"
+  subject: "Daily Cyber Intelligence - {{ report_date }}"
   smtp:
     host: localhost
     port: 1025
@@ -19,17 +19,5 @@ email:
     start_tls: false
     timeout_seconds: 30
 
-sources:
-  - name: CrowdStrike
-    kind: rss
-    url: https://www.crowdstrike.com/en-us/blog/feed/
-    category: Threat Intelligence
-    priority: 5
-    enabled: true
-  - name: CISA KEV
-    kind: api
-    url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
-    category: Vulnerabilities
-    priority: 5
-    enabled: true
-
+source_files:
+  - sources.yml

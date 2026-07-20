@@ -1,0 +1,182 @@
+# Curated public cyber-intelligence sources. Priority ranges from 1 (supplemental)
+# to 5 (authoritative or immediately actionable).
+sources:
+  # Government and coordination centers
+  - name: CISA Cybersecurity Advisories
+    kind: rss
+    url: https://www.cisa.gov/cybersecurity-advisories/all.xml
+    category: Government Advisories
+    priority: 5
+    enabled: true
+  - name: CISA News
+    kind: rss
+    url: https://www.cisa.gov/news.xml
+    category: Government Advisories
+    priority: 4
+    enabled: true
+  - name: CISA Known Exploited Vulnerabilities
+    kind: api
+    url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+    category: Exploited Vulnerabilities
+    priority: 5
+    enabled: true
+  - name: CERT Coordination Center
+    kind: rss
+    url: https://kb.cert.org/vuls/atomfeed/
+    category: Vulnerabilities
+    priority: 5
+    enabled: true
+  - name: SANS Internet Storm Center
+    kind: rss
+    url: https://isc.sans.edu/rssfeed.xml
+    category: Threat Activity
+    priority: 5
+    enabled: true
+
+  # Vendor threat research and product security
+  - name: CrowdStrike Blog
+    kind: rss
+    url: https://www.crowdstrike.com/en-us/blog/feed/
+    category: Threat Intelligence
+    priority: 5
+    enabled: true
+  - name: Google Threat Intelligence
+    kind: rss
+    url: https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/
+    category: Threat Intelligence
+    priority: 5
+    enabled: true
+  - name: Google Security Blog
+    kind: rss
+    url: https://security.googleblog.com/feeds/posts/default
+    category: Security Research
+    priority: 4
+    enabled: true
+  - name: Microsoft Security Blog
+    kind: rss
+    url: https://www.microsoft.com/en-us/security/blog/feed/
+    category: Threat Intelligence
+    priority: 5
+    enabled: true
+  - name: Microsoft Security Response Center
+    kind: rss
+    url: https://msrc.microsoft.com/blog/feed/
+    category: Vendor Advisories
+    priority: 5
+    enabled: true
+  - name: Palo Alto Unit 42
+    kind: rss
+    url: https://unit42.paloaltonetworks.com/feed/
+    category: Threat Intelligence
+    priority: 5
+    enabled: true
+  - name: Cisco Talos
+    kind: rss
+    url: https://blog.talosintelligence.com/rss/
+    category: Threat Intelligence
+    priority: 5
+    enabled: true
+  - name: Cisco Security Advisories
+    kind: rss
+    url: https://tools.cisco.com/security/center/psirtrss20/CiscoSecurityAdvisory.xml
+    category: Vendor Advisories
+    priority: 5
+    enabled: true
+  - name: Fortinet Threat Research
+    kind: rss
+    url: https://www.fortinet.com/blog/threat-research/rss.xml
+    category: Threat Intelligence
+    priority: 4
+    enabled: true
+  - name: SentinelLabs
+    kind: rss
+    url: https://www.sentinelone.com/labs/feed/
+    category: Threat Intelligence
+    priority: 4
+    enabled: true
+  - name: Sophos Threat Research
+    kind: rss
+    url: https://news.sophos.com/en-us/category/threat-research/feed/
+    category: Threat Intelligence
+    priority: 4
+    enabled: true
+  - name: ESET WeLiveSecurity
+    kind: rss
+    url: https://www.welivesecurity.com/en/rss/feed/
+    category: Security Research
+    priority: 4
+    enabled: true
+  - name: Rapid7 Blog
+    kind: rss
+    url: https://www.rapid7.com/blog/rss/
+    category: Vulnerabilities
+    priority: 4
+    enabled: true
+  - name: Tenable Blog
+    kind: rss
+    url: https://www.tenable.com/blog/rss.xml
+    category: Vulnerabilities
+    priority: 4
+    enabled: true
+  - name: Project Zero
+    kind: rss
+    url: https://googleprojectzero.blogspot.com/feeds/posts/default
+    category: Vulnerability Research
+    priority: 5
+    enabled: true
+  - name: Malwarebytes Labs
+    kind: rss
+    url: https://www.malwarebytes.com/blog/feed/index.xml
+    category: Malware
+    priority: 3
+    enabled: true
+
+  # Independent research and security news
+  - name: Krebs on Security
+    kind: rss
+    url: https://krebsonsecurity.com/feed/
+    category: Security News
+    priority: 4
+    enabled: true
+  - name: Schneier on Security
+    kind: rss
+    url: https://www.schneier.com/feed/atom/
+    category: Security Analysis
+    priority: 3
+    enabled: true
+  - name: BleepingComputer
+    kind: rss
+    url: https://www.bleepingcomputer.com/feed/
+    category: Security News
+    priority: 4
+    enabled: true
+  - name: The Hacker News
+    kind: rss
+    url: https://feeds.feedburner.com/TheHackersNews
+    category: Security News
+    priority: 3
+    enabled: true
+  - name: SecurityWeek
+    kind: rss
+    url: https://feeds.feedburner.com/securityweek
+    category: Security News
+    priority: 3
+    enabled: true
+  - name: Dark Reading
+    kind: rss
+    url: https://www.darkreading.com/rss.xml
+    category: Security News
+    priority: 3
+    enabled: true
+  - name: The Record
+    kind: rss
+    url: https://therecord.media/feed
+    category: Security News
+    priority: 4
+    enabled: true
+  - name: Risky Business News
+    kind: rss
+    url: https://risky.biz/feeds/risky-business-news/
+    category: Security News
+    priority: 4
+    enabled: true

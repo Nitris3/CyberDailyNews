@@ -1,10 +1,9 @@
-{# Replace the presentation markup with the supplied CSAA template while preserving report fields. #}
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CSAA Daily Cyber News</title>
+    <title>Daily Cyber Intelligence</title>
   </head>
   <body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#172033">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -12,7 +11,7 @@
         <table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" style="max-width:680px;width:100%;background:#ffffff">
           <tr><td style="background:#142b4a;color:#ffffff;padding:28px 32px">
             <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Cyber Intelligence</div>
-            <h1 style="margin:8px 0 0;font-size:28px">CSAA Daily Cyber News</h1>
+            <h1 style="margin:8px 0 0;font-size:28px">Daily Cyber Intelligence</h1>
             <div style="margin-top:8px">{{ report.report_date.strftime('%B %d, %Y') }}</div>
           </td></tr>
           <tr><td style="padding:24px 32px">
@@ -35,4 +34,3 @@
     </table>
   </body>
 </html>
-

@@ -25,5 +25,5 @@ def test_renderer_escapes_untrusted_content_and_builds_subject() -> None:
 
     assert "&lt;script&gt;" in html
     assert "Summary &amp; analysis" in html
-    assert renderer.render_subject("CSAA Daily - {{ report_date }}", report) == "CSAA Daily - 2026-07-20"
-
+    subject = renderer.render_subject("Daily Report - {{ report_date }}", report)
+    assert subject == "Daily Report - 2026-07-20"

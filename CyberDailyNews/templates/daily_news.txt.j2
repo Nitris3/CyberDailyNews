@@ -1,4 +1,4 @@
-CSAA Daily Cyber News — {{ report.report_date }}
+Daily Cyber Intelligence — {{ report.report_date }}
 {% for item in report.items %}
 {{ item.title }}
 {{ item.category }} | {{ item.source }} | {{ item.severity.value }}
@@ -7,4 +7,3 @@ CSAA Daily Cyber News — {{ report.report_date }}
 {% else %}
 No qualifying cyber-intelligence items were identified for this report.
 {% endfor %}
-

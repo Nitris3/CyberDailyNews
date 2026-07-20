@@ -36,7 +36,7 @@ class SMTPConfig(StrictModel):
 class EmailConfig(StrictModel):
     sender: str
     recipients: tuple[str, ...]
-    subject: str = "CSAA Daily Cyber News - {{ report_date }}"
+    subject: str = "Daily Cyber Intelligence - {{ report_date }}"
     smtp: SMTPConfig
 
     @field_validator("recipients")
@@ -60,6 +60,7 @@ class Settings(StrictModel):
     app: AppConfig = AppConfig()
     database: DatabaseConfig = DatabaseConfig()
     email: EmailConfig
+    source_files: tuple[str, ...] = ()
     sources: tuple[SourceConfig, ...] = ()
 
 
@@ -82,6 +83,34 @@ def load_settings(path: str | Path) -> Settings:
         raw = yaml.safe_load(stream) or {}
     if not isinstance(raw, dict):
         raise ValueError("configuration root must be a YAML mapping")
+    source_files = raw.get("source_files", [])
+    if not isinstance(source_files, list):
+        raise ValueError("source_files must be a YAML list")
+    merged_sources = list(raw.get("sources", []))
+    for source_file in source_files:
+        source_path = config_path.parent / source_file
+        with source_path.open(encoding="utf-8") as stream:
+            source_document = yaml.safe_load(stream) or {}
+        if not isinstance(source_document, dict) or not isinstance(
+            source_document.get("sources", []), list
+        ):
+            raise ValueError(f"source file must contain a sources list: {source_path}")
+        merged_sources.extend(source_document.get("sources", []))
+    raw["sources"] = merged_sources
+    names: set[str] = set()
+    urls: set[str] = set()
+    for source in merged_sources:
+        if not isinstance(source, dict):
+            raise ValueError("each source must be a YAML mapping")
+        name = source.get("name")
+        url = source.get("url")
+        if isinstance(name, str) and name in names:
+            raise ValueError(f"duplicate source name: {name}")
+        if isinstance(url, str) and url in urls:
+            raise ValueError(f"duplicate source URL: {url}")
+        if isinstance(name, str):
+            names.add(name)
+        if isinstance(url, str):
+            urls.add(url)
     _apply_environment_overrides(raw)
     return Settings.model_validate(raw)
-
