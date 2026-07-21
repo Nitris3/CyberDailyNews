@@ -16,11 +16,19 @@ class FakeResponse(io.BytesIO):
 
 
 def test_build_prompt_constrains_security_summary() -> None:
-    prompt = build_prompt(title="Issue", content="Details", max_characters=300)
+    prompt = build_prompt(
+        title="Issue",
+        content="Details",
+        max_characters=300,
+        audience="executive leaders",
+        instructions="Focus on business impact.",
+    )
 
     assert "at most 300 characters" in prompt
     assert "no speculation" in prompt
     assert "Title: Issue" in prompt
+    assert "executive leaders" in prompt
+    assert "Focus on business impact." in prompt
 
 
 def test_ollama_summarizer_parses_response(monkeypatch: pytest.MonkeyPatch) -> None:

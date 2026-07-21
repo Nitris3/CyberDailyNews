@@ -16,6 +16,11 @@ python -m pip install -e ".[dev]"
 python -m ccip.cli init-db
 ```
 
+After installation, normal users can double-click `Start-CyberDailyNews.cmd`.
+It creates the ignored local configuration when needed and opens the browser dashboard.
+The remaining commands in this guide are available for administrators and troubleshooting;
+routine configuration and operation can be completed in the dashboard.
+
 The application requires Python 3.12 or newer. Configuration defaults to
 `config/ccip.yml`; select another file by placing `--config path\to\file.yml` before
 the command name.
@@ -50,7 +55,7 @@ python -m ccip.cli collect
 python -m ccip.cli preview --open
 ```
 
-This path never calls Ollama or Copilot. It uses deterministic cleanup, truncation,
+This path never calls an AI service. It uses deterministic cleanup, truncation,
 priority scoring, and severity rules.
 
 ### Option B: Ollama only for an AI preview
@@ -84,6 +89,10 @@ modify stored articles and never sends email.
      endpoint: http://127.0.0.1:11434
      timeout_seconds: 180
      fallback_to_rules: true
+     audience: senior executives and business leaders
+     instructions: >-
+       Use plain language. Focus on business impact, urgency, and the action or decision
+       leaders need to understand. Avoid unnecessary technical detail.
    ```
 
 3. Run collection:
@@ -95,24 +104,102 @@ modify stored articles and never sends email.
 With `fallback_to_rules: true`, collection continues with deterministic summaries if
 Ollama is unavailable. Set it to `false` only when model failure should stop collection.
 
-### Option D: Copilot CLI during collection
+### Microsoft 365 Copilot for enterprise
 
-Set `provider: copilot`, choose a supported model name, and set `copilot_binary` if the
-signed-in executable is not named `copilot`:
+Microsoft 365 Copilot is not the GitHub Copilot CLI. Its Chat API currently requires a
+licensed work account, tenant application registration, delegated Microsoft Graph
+permissions, and administrator consent. The API is also currently documented as preview.
+The dashboard therefore explains these requirements but does not claim the provider is
+enabled. Choose **No AI** or **Local Ollama** until an administrator configures and approves
+the Microsoft 365 integration.
 
-```yaml
-summarization:
-  provider: copilot
-  model: your-model-name
-  copilot_binary: copilot
-  timeout_seconds: 180
-  fallback_to_rules: true
-```
+The dashboard provides a dedicated setup panel with direct links to Microsoft Entra and
+the Microsoft documentation. An administrator supplies the Directory (tenant) ID and
+Application (client) ID after registering and consenting to the application. These IDs
+are stored only in the ignored local configuration. The dashboard continues to show the
+integration as incomplete until administrator consent and API validation are available.
 
-Copilot is supported for collection. The preview-specific `--resummarize` flag always
-uses Ollama so that preview rewriting remains local.
+### Add an article manually
+
+Use **Add an article to this email** inside the live review screen for a story found
+outside configured feeds. Headline, summary, and an `http://` or `https://` hyperlink are
+required. The article is added only to the current draft and checked against the other
+stories in that email. Duplicate URLs and substantially similar headlines are rejected.
 
 ## 3. Configure the report
+
+### Configure ranking and company watchlists
+
+Ranking is deterministic and configurable. Source priority establishes the base score;
+exploitation, ransomware, critical terms, and company watchlists add bonuses. Scores are
+capped by `max_score`. Reports select the highest scores first and use publication time
+to break ties.
+
+```yaml
+scoring:
+  priority_multiplier: 1.2
+  known_exploited_bonus: 2.0
+  ransomware_bonus: 1.5
+  critical_keyword_bonus: 1.0
+  exploited_keywords: [exploited vulnerabilit, known exploited]
+  ransomware_keywords: [ransomware]
+  critical_keywords: [critical, remote code execution, zero-day]
+  medium_threshold: 4.0
+  high_threshold: 7.0
+  critical_threshold: 9.0
+  max_score: 10.0
+  watchlist_keywords:
+    - ExampleCorp
+    - "Product X"
+    - Example Partner
+  watchlist_bonus: 2.0
+```
+
+Watchlist matching is case-insensitive and searches the source title, summary, category,
+and source name. Enter one keyword per line in the dashboard. Put multi-word phrases in
+quotes, such as `'Product X'`. The bonus is added once when any keyword matches.
+
+Thresholds must increase in this order:
+`medium_threshold < high_threshold < critical_threshold <= max_score`.
+
+After changing scoring or watchlists, preview the effect on existing stored articles:
+
+```powershell
+python -m ccip.cli --config config\ccip.local.yml rescore
+```
+
+The default is read-only and reports how many records would change. Apply only after
+reviewing the policy:
+
+```powershell
+python -m ccip.cli --config config\ccip.local.yml rescore --apply
+```
+
+Rescoring uses stored titles and summaries plus the current source priorities. It does
+not collect feeds, call AI, alter article text, or send email.
+
+In the dashboard, collection automatically applies rescoring after new articles are
+stored. The single **Rescore articles** button also applies the current scoring policy;
+there is no separate preview-rescore control in the user interface.
+
+Collection uses deterministic rules so all feeds can be processed quickly. When Ollama
+is selected, AI rewriting is deferred until preview or review and applies only to the
+final, deduplicated report items (five by default). Previously stored article identities
+are rejected before text processing. The dashboard reports the collection duration.
+Collection runs as a background job: the page remains responsive, prevents overlapping
+runs, and updates the green status area while fetching, rescoring, and completing.
+The large CISA KEV catalog is cached locally for six hours by default. Set
+`collection.kev_cache_hours` to `0` to disable caching or choose up to 168 hours.
+
+### Configure a daily schedule
+
+Use the dashboard's **Daily schedule** card to enable collection and choose a local time.
+Click **Save settings** to create or update the per-user Windows scheduled task. At that
+time each day, Windows collects sources and automatically rescores stored articles. It
+never sends email automatically; review and approval remain required.
+
+The dashboard does not need to remain running. Disable the checkbox and save to remove
+the task. The time uses the computer's local timezone and 24-hour `HH:MM` format.
 
 Edit the `email` section:
 
@@ -217,6 +304,22 @@ After reviewing the output and configuring SMTP secrets, explicitly authorize de
 python -m ccip.cli --config config\ccip.local.yml send --date 2026-07-20 --confirm-send
 ```
 
+Confirmed delivery opens a local browser review application. Reviewers can edit titles
+and summaries directly, include or exclude articles, drag cards to reorder them, request
+a local-AI rewrite, and compare changes against the live email preview. **Save & Preview**
+applies edits without sending. **Deny** stops before SMTP. **Approve & Send** requires the
+Gmail app password and is the only browser action that permits delivery.
+
+The application binds only to `127.0.0.1` on a temporary port and requires a random,
+one-time session token. The app password is held in memory only for the approved send.
+The review cannot approve an empty report.
+Use `--bypass-review` only when intentionally skipping this human gate; it still requires
+`--confirm-send` and still refuses an initially empty report.
+
+After successful delivery, the date and recipient set are recorded locally. Another
+normal send of the same report is blocked. Use **Review & Send Again** in the dashboard
+only when a repeat delivery is intentional.
+
 If `email.smtp.username` is configured and no password is present in YAML or
 `CCIP_SMTP_PASSWORD`, the command securely prompts for the SMTP credential every time.
 Input is hidden and is retained only for that process. For Gmail accounts with two-step
@@ -283,12 +386,31 @@ database:
 | `app.log_level` | `INFO` | Application logging level |
 | `database.url` | `sqlite:///data/ccip.db` | SQLAlchemy connection URL |
 | `database.echo` | `false` | SQL debug logging |
-| `summarization.provider` | `rules`; `rules`, `ollama`, `copilot` | Collection summarizer |
+| `summarization.provider` | `rules`; `rules`, `ollama` | Collection summarizer |
 | `summarization.model` | `llama3.2:3b` | Model identifier |
 | `summarization.endpoint` | `http://127.0.0.1:11434` | Ollama API base URL |
 | `summarization.timeout_seconds` | positive; shipped as `180` | Model request timeout |
 | `summarization.fallback_to_rules` | `true` | Continue if collection AI fails |
-| `summarization.copilot_binary` | `copilot` | Copilot executable path/name |
+| `summarization.audience` | executive audience | Intended reader for AI output |
+| `summarization.instructions` | executive editorial guidance | Additional AI writing direction |
+| `scoring.priority_multiplier` | `1.2`; nonnegative | Converts source priority into base score |
+| `scoring.known_exploited_bonus` | `2.0`; nonnegative | Bonus for exploited keywords |
+| `scoring.ransomware_bonus` | `1.5`; nonnegative | Bonus for ransomware evidence |
+| `scoring.critical_keyword_bonus` | `1.0`; nonnegative | Bonus for critical keywords |
+| `scoring.exploited_keywords` | exploited terms | Case-insensitive exploited indicators |
+| `scoring.ransomware_keywords` | `ransomware` | Case-insensitive ransomware indicators |
+| `scoring.critical_keywords` | critical/RCE/zero-day | High-impact indicators |
+| `scoring.medium_threshold` | `4.0` | Minimum medium-severity score |
+| `scoring.high_threshold` | `7.0` | Minimum high-severity score |
+| `scoring.critical_threshold` | `9.0` | Minimum critical-severity score |
+| `scoring.max_score` | `10.0`; positive | Score ceiling |
+| `scoring.watchlist_keywords` | empty list | Company keywords or quoted phrases |
+| `scoring.watchlist_bonus` | `1.0`; 0–10 | Bonus applied once when any keyword matches |
+| `microsoft_365_copilot.tenant_id` | empty | Microsoft Entra directory identifier |
+| `microsoft_365_copilot.client_id` | empty | Registered application identifier |
+| `microsoft_365_copilot.enabled` | `false` | Reserved until consent/API validation succeeds |
+| `schedule.enabled` | `false` | Enable daily collection and rescoring |
+| `schedule.daily_time` | `08:00` | Local run time in 24-hour `HH:MM` format |
 | `email.sender` | required | From address |
 | `email.recipients` | at least one | Destination addresses |
 | `email.subject` | dated default template | Email subject template |

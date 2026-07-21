@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 
 import structlog
 
+from ccip.config import ScoringConfig
 from ccip.domain import CollectedItem, IntelligenceItem, Severity
 from ccip.summarization import Summarizer
 
@@ -30,12 +31,14 @@ class RulesProcessor:
         summary_length: int = 600,
         summarizer: Summarizer | None = None,
         fallback_on_error: bool = True,
+        scoring: ScoringConfig | None = None,
     ) -> None:
         if summary_length < 50:
             raise ValueError("summary_length must be at least 50")
         self.summary_length = summary_length
         self.summarizer = summarizer
         self.fallback_on_error = fallback_on_error
+        self.scoring = scoring or ScoringConfig()
 
     def process(self, item: CollectedItem) -> IntelligenceItem | None:
         summary = self._plain_text(item.content)
@@ -86,26 +89,33 @@ class RulesProcessor:
         shortened = value[: self.summary_length - 1].rsplit(" ", 1)[0]
         return f"{shortened}…"
 
-    @staticmethod
-    def _score(item: CollectedItem, summary: str) -> float:
+    def _score(self, item: CollectedItem, summary: str) -> float:
+        config = self.scoring
         priority = item.metadata.get("priority", 3)
-        base = float(priority) * 1.2 if isinstance(priority, int | float) else 3.6
-        text = f"{item.title} {summary} {item.category}".lower()
-        if "exploited vulnerabilit" in text or "known exploited" in text:
-            base += 2.0
-        if item.metadata.get("known_ransomware_use") is True or "ransomware" in text:
-            base += 1.5
-        if any(term in text for term in ("critical", "remote code execution", "zero-day")):
-            base += 1.0
-        return round(min(base, 10.0), 1)
+        base = (
+            float(priority) * config.priority_multiplier
+            if isinstance(priority, int | float)
+            else 3 * config.priority_multiplier
+        )
+        text = f"{item.title} {summary} {item.category} {item.source}".lower()
+        if any(term.lower() in text for term in config.exploited_keywords):
+            base += config.known_exploited_bonus
+        if item.metadata.get("known_ransomware_use") is True or any(
+            term.lower() in text for term in config.ransomware_keywords
+        ):
+            base += config.ransomware_bonus
+        if any(term.lower() in text for term in config.critical_keywords):
+            base += config.critical_keyword_bonus
+        if any(term.strip("'\"").lower() in text for term in config.watchlist_keywords):
+            base += config.watchlist_bonus
+        return round(min(base, config.max_score), 1)
 
-    @staticmethod
-    def _severity(score: float) -> Severity:
-        if score >= 9:
+    def _severity(self, score: float) -> Severity:
+        if score >= self.scoring.critical_threshold:
             return Severity.CRITICAL
-        if score >= 7:
+        if score >= self.scoring.high_threshold:
             return Severity.HIGH
-        if score >= 4:
+        if score >= self.scoring.medium_threshold:
             return Severity.MEDIUM
         if score > 0:
             return Severity.LOW

@@ -54,6 +54,31 @@ def test_cli_send_requires_explicit_confirmation() -> None:
     assert arguments.confirm_send is True
 
 
+def test_cli_resend_requires_explicit_flag() -> None:
+    arguments = build_parser().parse_args(["send", "--confirm-send", "--allow-resend"])
+
+    assert arguments.allow_resend is True
+    assert arguments.bypass_review is False
+
+
+def test_cli_send_review_bypass_is_explicit() -> None:
+    arguments = build_parser().parse_args(["send", "--confirm-send", "--bypass-review"])
+
+    assert arguments.bypass_review is True
+
+
+def test_cli_rescore_is_dry_run_by_default() -> None:
+    arguments = build_parser().parse_args(["rescore"])
+
+    assert arguments.apply is False
+
+
+def test_cli_rescore_apply_is_explicit() -> None:
+    arguments = build_parser().parse_args(["rescore", "--apply"])
+
+    assert arguments.apply is True
+
+
 def test_cli_send_rejects_dry_run_and_confirmation_together() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["send", "--dry-run", "--confirm-send"])

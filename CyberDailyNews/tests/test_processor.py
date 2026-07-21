@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from ccip.config import ScoringConfig
 from ccip.domain import CollectedItem, Severity
 from ccip.processors import RulesProcessor
 
@@ -58,3 +59,40 @@ def test_rules_processor_falls_back_when_model_is_unavailable() -> None:
 
     assert result is not None
     assert "Attackers are exploiting" in result.summary
+
+
+def test_scoring_policy_and_company_watchlists_are_configurable() -> None:
+    scoring = ScoringConfig(
+        priority_multiplier=1,
+        known_exploited_bonus=0,
+        ransomware_bonus=0,
+        critical_keyword_bonus=0,
+        medium_threshold=2,
+        high_threshold=4,
+        critical_threshold=6,
+        max_score=8,
+        watchlist_keywords=("ExampleCorp",),
+        watchlist_bonus=3,
+    )
+
+    result = RulesProcessor(scoring=scoring).process(
+        item(title="ExampleCorp advisory", metadata={"priority": 2})
+    )
+
+    assert result is not None
+    assert result.score == 5
+    assert result.severity is Severity.HIGH
+
+
+def test_watchlist_bonus_applies_once_when_multiple_terms_match() -> None:
+    scoring = ScoringConfig(
+        watchlist_keywords=("ExampleCorp", "Product X"),
+        watchlist_bonus=2,
+    )
+
+    result = RulesProcessor(scoring=scoring).process(
+        item(title="ExampleCorp Product X update", metadata={"priority": 1})
+    )
+
+    assert result is not None
+    assert result.score == 6.7

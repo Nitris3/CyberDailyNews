@@ -12,6 +12,45 @@ summarization:
   endpoint: http://127.0.0.1:11434
   timeout_seconds: 180
   fallback_to_rules: true
+  audience: senior executives and business leaders
+  instructions: >-
+    Use plain language. Focus on business impact, urgency, and the action or decision
+    leaders need to understand. Avoid unnecessary technical detail.
+
+scoring:
+  priority_multiplier: 1.2
+  known_exploited_bonus: 2.0
+  ransomware_bonus: 1.5
+  critical_keyword_bonus: 1.0
+  exploited_keywords:
+    - exploited vulnerabilit
+    - known exploited
+  ransomware_keywords:
+    - ransomware
+  critical_keywords:
+    - critical
+    - remote code execution
+    - zero-day
+  medium_threshold: 4.0
+  high_threshold: 7.0
+  critical_threshold: 9.0
+  max_score: 10.0
+  watchlist_keywords: []
+  watchlist_bonus: 1.0
+
+microsoft_365_copilot:
+  tenant_id: ""
+  client_id: ""
+  enabled: false
+
+schedule:
+  enabled: false
+  daily_time: "08:00"
+
+collection:
+  max_workers: 8
+  source_timeout_seconds: 10
+  kev_cache_hours: 6
 
 email:
   sender: cyber-intelligence@example.com

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
+from time import time
 from typing import Any
 
 from ccip.collectors.rss import fetch_feed
@@ -25,12 +27,16 @@ class KEVCollector:
         *,
         timeout_seconds: float = 20,
         fetcher: CatalogFetcher = fetch_feed,
+        cache_path: Path | None = None,
+        cache_hours: float = 0,
     ) -> None:
         if source.kind != "api":
             raise ValueError("KEVCollector requires an API source")
         self.source = source
         self.timeout_seconds = timeout_seconds
         self.fetcher = fetcher
+        self.cache_path = cache_path
+        self.cache_seconds = cache_hours * 3600
 
     @property
     def name(self) -> str:
@@ -40,7 +46,7 @@ class KEVCollector:
         if not self.source.enabled:
             return ()
         try:
-            payload = self.fetcher(self.source.url, self.timeout_seconds)
+            payload = self._payload()
             document = json.loads(payload)
         except Exception as error:
             raise CatalogCollectionError(f"failed to load {self.source.name}: {error}") from error
@@ -55,6 +61,21 @@ class KEVCollector:
             if item is not None:
                 items.append(item)
         return items
+
+    def _payload(self) -> bytes:
+        cache = self.cache_path
+        if (
+            cache is not None
+            and self.cache_seconds > 0
+            and cache.exists()
+            and time() - cache.stat().st_mtime < self.cache_seconds
+        ):
+            return cache.read_bytes()
+        payload = self.fetcher(self.source.url, self.timeout_seconds)
+        if cache is not None and self.cache_seconds > 0:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(payload)
+        return payload
 
     def _normalize(self, record: dict[str, Any]) -> CollectedItem | None:
         cve_id = str(record.get("cveID", "")).strip().upper()
@@ -91,4 +112,3 @@ class KEVCollector:
             except ValueError:
                 pass
         return datetime.now(UTC)
-

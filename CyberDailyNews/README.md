@@ -12,6 +12,13 @@ python -m pip install -e ".[dev]"
 pytest
 ```
 
+## Browser dashboard
+
+On Windows, double-click `Start-CyberDailyNews.cmd`.
+The localhost dashboard provides friendly controls for AI preference, executive prompts,
+scoring, company watchlists, email settings, collection, previews, rescoring, and reviewed
+delivery. Personal configuration remains in the ignored `config/ccip.local.yml` file.
+
 Configuration is read from `config/ccip.yml`. Keep SMTP credentials out of source
 control and provide them with `CCIP_SMTP_USERNAME` and `CCIP_SMTP_PASSWORD`.
 The curated feed registry is maintained separately in `config/sources.yml` and is
@@ -63,12 +70,23 @@ recipients, SMTP host, and environment-based credentials before using it.
 When an SMTP username is configured without a stored password, confirmed delivery asks
 for the credential securely on every run.
 
+Confirmed delivery opens a review preview first. The reviewer can approve, deny, remove
+articles, edit titles or summaries, or regenerate copy with local AI. SMTP credentials
+are requested only after approval. `--bypass-review` is available for exceptional use.
+
+The dashboard can create a daily Windows task for collection and rescoring; it works
+while the dashboard is closed and never sends automatically. Successful sends are
+recorded locally to prevent accidental duplicate delivery.
+
 ## Generative summaries
 
-`summarization.provider` supports `ollama`, `copilot`, or `rules`. Ollama uses the local
-endpoint configured in `ccip.yml`. Copilot invokes an installed and signed-in Copilot CLI
-non-interactively and grants it no file, shell, or URL tools. When configured,
+`summarization.provider` supports `ollama` or `rules`. Ollama uses the local
+endpoint configured in `ccip.yml`. When configured,
 `fallback_to_rules` keeps collection operational if the model is unavailable.
+
+Microsoft 365 Copilot is a separate enterprise integration requiring tenant app
+registration, delegated permissions, administrator consent, and licensed work accounts.
+It is intentionally not presented as available until that integration is configured.
 
 The HTML establishes the render contract and email-safe structure. The
 `report.report_date` and `report.items` data contract is stable.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.request import Request, urlopen
@@ -23,12 +22,19 @@ class RewrittenBrief:
     summary: str
 
 
-def build_prompt(*, title: str, content: str, max_characters: int) -> str:
+def build_prompt(
+    *,
+    title: str,
+    content: str,
+    max_characters: int,
+    audience: str = "security operations staff",
+    instructions: str = "",
+) -> str:
     return (
-        "Summarize the following cyber-intelligence item for security operations staff. "
+        f"Summarize the following cyber-intelligence item for {audience}. "
         f"Use plain text, no heading, no speculation, and at most {max_characters} characters. "
         "Preserve affected products, exploitation status, impact, and required action when "
-        "present.\n\n"
+        f"present. {instructions.strip()}\n\n"
         f"Title: {title}\nContent: {content}"
     )
 
@@ -38,6 +44,8 @@ class OllamaSummarizer:
     model: str
     endpoint: str = "http://127.0.0.1:11434"
     timeout_seconds: float = 60
+    audience: str = "security operations staff"
+    instructions: str = ""
 
     def summarize(self, *, title: str, content: str, max_characters: int) -> str:
         payload = json.dumps(
@@ -47,6 +55,8 @@ class OllamaSummarizer:
                     title=title,
                     content=content,
                     max_characters=max_characters,
+                    audience=self.audience,
+                    instructions=self.instructions,
                 ),
                 "stream": False,
                 "options": {"temperature": 0.1},
@@ -70,11 +80,12 @@ class OllamaSummarizer:
 
     def rewrite_brief(self, *, title: str, content: str) -> RewrittenBrief:
         prompt = (
-            "Rewrite this cyber-intelligence item for a simple executive briefing. "
+            f"Rewrite this cyber-intelligence item for {self.audience}. "
             "Return JSON with exactly two strings: title and summary. The title must be a "
             "plain, factual headline of at most 12 words. The summary must be one high-level "
             "sentence of at most 35 words. Avoid hype, jargon, headings, and speculation. "
-            "Preserve the affected product and required action when known.\n\n"
+            "Preserve the affected product and required action when known. "
+            f"{self.instructions.strip()}\n\n"
             f"Source title: {title}\nSource text: {content}"
         )
         payload = json.dumps(
@@ -103,27 +114,3 @@ class OllamaSummarizer:
         if not rewritten_title or not rewritten_summary:
             raise SummarizationError("local model returned an incomplete rewrite")
         return RewrittenBrief(title=rewritten_title[:120], summary=rewritten_summary[:300])
-
-
-@dataclass(frozen=True, slots=True)
-class CopilotCLISummarizer:
-    model: str
-    binary: str = "copilot"
-    timeout_seconds: float = 60
-
-    def summarize(self, *, title: str, content: str, max_characters: int) -> str:
-        prompt = build_prompt(title=title, content=content, max_characters=max_characters)
-        try:
-            completed = subprocess.run(  # noqa: S603
-                [self.binary, "-p", prompt, "-s", "--no-ask-user", "--model", self.model],
-                capture_output=True,
-                check=True,
-                text=True,
-                timeout=self.timeout_seconds,
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            raise SummarizationError(f"Copilot CLI request failed: {error}") from error
-        result = completed.stdout.strip()
-        if not result:
-            raise SummarizationError("Copilot CLI returned an empty response")
-        return result[:max_characters]

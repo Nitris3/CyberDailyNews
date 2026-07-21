@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import Date, DateTime, Float, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -49,6 +49,7 @@ class ArticleRecord(Base):
             score=item.score,
         )
 
+
     def to_domain(self) -> IntelligenceItem:
         return IntelligenceItem(
             external_id=self.external_id,
@@ -61,6 +62,20 @@ class ArticleRecord(Base):
             severity=Severity(self.severity),
             score=self.score,
         )
+
+
+class DeliveryRecord(Base):
+    """Successful report delivery used to prevent accidental repeat sends."""
+
+    __tablename__ = "report_deliveries"
+    __table_args__ = (UniqueConstraint("report_date", "recipient_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    recipient_key: Mapped[str] = mapped_column(String(2048))
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now().astimezone()
+    )
 
 
 def build_engine(url: str, *, echo: bool = False) -> Engine:
@@ -86,4 +101,3 @@ class Database:
             raise
         finally:
             session.close()
-

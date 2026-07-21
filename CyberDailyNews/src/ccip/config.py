@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -25,12 +26,64 @@ class DatabaseConfig(StrictModel):
 
 
 class SummarizationConfig(StrictModel):
-    provider: Literal["rules", "ollama", "copilot"] = "rules"
+    provider: Literal["rules", "ollama"] = "rules"
     model: str = "llama3.2:3b"
     endpoint: str = "http://127.0.0.1:11434"
     timeout_seconds: float = Field(default=60, gt=0)
     fallback_to_rules: bool = True
-    copilot_binary: str = "copilot"
+    audience: str = "senior executives and business leaders"
+    instructions: str = (
+        "Use plain language. Focus on business impact, urgency, and the action or decision "
+        "leaders need to understand. Avoid unnecessary technical detail."
+    )
+
+
+class ScoringConfig(StrictModel):
+    priority_multiplier: float = Field(default=1.2, ge=0)
+    known_exploited_bonus: float = Field(default=2.0, ge=0)
+    ransomware_bonus: float = Field(default=1.5, ge=0)
+    critical_keyword_bonus: float = Field(default=1.0, ge=0)
+    exploited_keywords: tuple[str, ...] = ("exploited vulnerabilit", "known exploited")
+    ransomware_keywords: tuple[str, ...] = ("ransomware",)
+    critical_keywords: tuple[str, ...] = ("critical", "remote code execution", "zero-day")
+    medium_threshold: float = Field(default=4.0, ge=0)
+    high_threshold: float = Field(default=7.0, ge=0)
+    critical_threshold: float = Field(default=9.0, ge=0)
+    max_score: float = Field(default=10.0, gt=0)
+    watchlist_keywords: tuple[str, ...] = ()
+    watchlist_bonus: float = Field(default=1.0, ge=0, le=10)
+
+    @model_validator(mode="after")
+    def thresholds_are_ordered(self) -> ScoringConfig:
+        if not (
+            self.medium_threshold < self.high_threshold < self.critical_threshold <= self.max_score
+        ):
+            raise ValueError("severity thresholds must increase and cannot exceed max_score")
+        return self
+
+
+class Microsoft365CopilotConfig(StrictModel):
+    tenant_id: str = ""
+    client_id: str = ""
+    enabled: bool = False
+
+
+class ScheduleConfig(StrictModel):
+    enabled: bool = False
+    daily_time: str = "08:00"
+
+    @field_validator("daily_time")
+    @classmethod
+    def daily_time_is_valid(cls, value: str) -> str:
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+            raise ValueError("daily_time must use 24-hour HH:MM format")
+        return value
+
+
+class CollectionConfig(StrictModel):
+    max_workers: int = Field(default=8, ge=1, le=32)
+    source_timeout_seconds: float = Field(default=10, gt=0, le=120)
+    kev_cache_hours: float = Field(default=6, ge=0, le=168)
 
 
 class SMTPConfig(StrictModel):
@@ -73,6 +126,10 @@ class Settings(StrictModel):
     app: AppConfig = AppConfig()
     database: DatabaseConfig = DatabaseConfig()
     summarization: SummarizationConfig = SummarizationConfig()
+    scoring: ScoringConfig = ScoringConfig()
+    microsoft_365_copilot: Microsoft365CopilotConfig = Microsoft365CopilotConfig()
+    schedule: ScheduleConfig = ScheduleConfig()
+    collection: CollectionConfig = CollectionConfig()
     email: EmailConfig
     source_files: tuple[str, ...] = ()
     sources: tuple[SourceConfig, ...] = ()

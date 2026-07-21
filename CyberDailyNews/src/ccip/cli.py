@@ -6,12 +6,14 @@ import argparse
 import getpass
 from collections.abc import Sequence
 from datetime import date
+from pathlib import Path
 
 import structlog
 from pydantic import SecretStr
 
 from ccip.collectors import KEVCollector, RSSCollector
 from ccip.config import SMTPConfig, load_settings
+from ccip.dashboard import run_dashboard
 from ccip.db import Database, build_engine
 from ccip.delivery import SMTPDelivery, compose_email
 from ccip.interfaces import Collector
@@ -20,7 +22,10 @@ from ccip.pipeline import IngestionPipeline
 from ccip.processors import RulesProcessor
 from ccip.rendering import ReportRenderer
 from ccip.reporting import DailyReportBuilder, open_preview, rewrite_report, write_preview
-from ccip.summarization import CopilotCLISummarizer, OllamaSummarizer, Summarizer
+from ccip.repository import DeliveryRepository
+from ccip.rescoring import rescore_articles
+from ccip.summarization import OllamaSummarizer, Summarizer
+from ccip.web_review import run_web_review
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("init-db", help="create the configured database schema")
     subcommands.add_parser("collect", help="collect, process, and store intelligence")
+    subcommands.add_parser("dashboard", help="open the local browser dashboard")
+    subcommands.add_parser("scheduled-run", help=argparse.SUPPRESS)
     preview = subcommands.add_parser("preview", help="render a daily HTML report without sending")
     preview.add_argument("--date", type=date.fromisoformat, default=date.today())
     preview.add_argument("--output", default=None)
@@ -53,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="use the configured local Ollama model to simplify titles and summaries",
     )
+    send.add_argument(
+        "--allow-resend",
+        action="store_true",
+        help="explicitly allow another delivery for the same date and recipients",
+    )
     delivery = send.add_mutually_exclusive_group()
     delivery.add_argument(
         "--dry-run",
@@ -63,6 +75,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--confirm-send",
         action="store_true",
         help="actually deliver through the configured SMTP server",
+    )
+    send.add_argument(
+        "--bypass-review",
+        action="store_true",
+        help="skip the interactive human review gate (requires --confirm-send)",
+    )
+    rescore = subcommands.add_parser(
+        "rescore",
+        help="preview score changes for stored articles",
+    )
+    rescore.add_argument(
+        "--apply",
+        action="store_true",
+        help="persist recalculated scores and severities (default is dry run)",
     )
     return parser
 
@@ -75,9 +101,18 @@ def build_collectors(settings: object) -> tuple[Collector, ...]:
     collectors: list[Collector] = []
     for source in settings.sources:
         if source.kind == "rss":
-            collectors.append(RSSCollector(source))
+            collectors.append(
+                RSSCollector(source, timeout_seconds=settings.collection.source_timeout_seconds)
+            )
         elif source.kind == "api":
-            collectors.append(KEVCollector(source))
+            collectors.append(
+                KEVCollector(
+                    source,
+                    timeout_seconds=settings.collection.source_timeout_seconds,
+                    cache_path=Path("data/cisa-kev.cache.json"),
+                    cache_hours=settings.collection.kev_cache_hours,
+                )
+            )
     return tuple(collectors)
 
 
@@ -88,14 +123,20 @@ def build_summarizer(settings: object) -> Summarizer | None:
         raise TypeError("settings must be a Settings instance")
     config = settings.summarization
     if config.provider == "ollama":
-        return OllamaSummarizer(config.model, config.endpoint, config.timeout_seconds)
-    if config.provider == "copilot":
-        return CopilotCLISummarizer(config.model, config.copilot_binary, config.timeout_seconds)
+        return OllamaSummarizer(
+            config.model,
+            config.endpoint,
+            config.timeout_seconds,
+            config.audience,
+            config.instructions,
+        )
     return None
 
 
-def smtp_config_for_delivery(config: SMTPConfig) -> SMTPConfig:
+def smtp_config_for_delivery(config: SMTPConfig, credential: str | None = None) -> SMTPConfig:
     """Prompt for an unstored SMTP credential when authenticated delivery needs one."""
+    if credential:
+        return config.model_copy(update={"password": SecretStr(credential)})
     if not config.username or config.password is not None:
         return config
     password = getpass.getpass(f"SMTP credential for {config.username}: ")
@@ -106,34 +147,68 @@ def smtp_config_for_delivery(config: SMTPConfig) -> SMTPConfig:
 
 def main(arguments: Sequence[str] | None = None) -> int:
     options = build_parser().parse_args(arguments)
+    if options.command == "dashboard":
+        run_dashboard(options.config)
+        return 0
     settings = load_settings(options.config)
     configure_logging(settings.app.log_level)
     database = Database(build_engine(settings.database.url, echo=settings.database.echo))
-    if options.command in {"init-db", "collect", "preview", "send"}:
+    if options.command in {"init-db", "collect", "scheduled-run", "preview", "send", "rescore"}:
         database.create_schema()
-    if options.command == "collect":
+    if options.command in {"collect", "scheduled-run"}:
         result = IngestionPipeline(
             database,
             build_collectors(settings),
             RulesProcessor(
-                summarizer=build_summarizer(settings),
+                # AI is deliberately reserved for the final report candidates.
+                summarizer=None,
                 fallback_on_error=settings.summarization.fallback_to_rules,
+                scoring=settings.scoring,
             ),
+            max_workers=settings.collection.max_workers,
         ).run()
         structlog.get_logger(__name__).info(
             "collection_command_completed",
             stored=result.stored,
             failed_sources=sum(source.status == "failed" for source in result.sources),
+            total_seconds=result.total_seconds,
+        )
+        if options.command == "scheduled-run":
+            rescore_result = rescore_articles(
+                database,
+                settings.scoring,
+                {source.name: source.priority for source in settings.sources},
+                apply=True,
+            )
+            structlog.get_logger(__name__).info(
+                "scheduled_rescore_completed",
+                examined=rescore_result.examined,
+                changed=rescore_result.changed,
+            )
+    if options.command == "rescore":
+        rescore_result = rescore_articles(
+            database,
+            settings.scoring,
+            {source.name: source.priority for source in settings.sources},
+            apply=options.apply,
+        )
+        structlog.get_logger(__name__).info(
+            "article_rescore_completed",
+            examined=rescore_result.examined,
+            changed=rescore_result.changed,
+            applied=options.apply,
         )
     if options.command == "preview":
         builder = DailyReportBuilder(database, max_items=settings.email.max_items)
         report = builder.build(options.date)
-        if options.resummarize:
+        if options.resummarize or settings.summarization.provider == "ollama":
             config = settings.summarization
             summarizer = OllamaSummarizer(
                 config.model,
                 config.endpoint,
                 config.timeout_seconds,
+                config.audience,
+                config.instructions,
             )
             report = rewrite_report(report, summarizer)
         renderer = ReportRenderer(
@@ -154,28 +229,83 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if options.command == "send":
         builder = DailyReportBuilder(database, max_items=settings.email.max_items)
         report = builder.build(options.date)
-        if options.resummarize:
+        if options.resummarize or settings.summarization.provider == "ollama":
             config = settings.summarization
             report = rewrite_report(
                 report,
-                OllamaSummarizer(config.model, config.endpoint, config.timeout_seconds),
+                OllamaSummarizer(
+                    config.model,
+                    config.endpoint,
+                    config.timeout_seconds,
+                    config.audience,
+                    config.instructions,
+                ),
             )
         renderer = ReportRenderer(
             settings.email.template_directory,
             html_template=settings.email.html_template,
             text_template=settings.email.text_template,
         )
-        html = renderer.render_html(report)
-        message = compose_email(
-            sender=settings.email.sender,
-            recipients=settings.email.recipients,
-            subject=renderer.render_subject(settings.email.subject, report),
-            html=html,
-            text=renderer.render_text(report),
-        )
         logger = structlog.get_logger(__name__)
         if options.confirm_send:
-            SMTPDelivery(smtp_config_for_delivery(settings.email.smtp)).deliver(message)
+            if not report.items:
+                raise RuntimeError("refusing to send an empty report")
+            with database.session() as session:
+                already_sent = DeliveryRepository(session).was_sent(
+                    report.report_date, settings.email.recipients
+                )
+            if already_sent and not options.allow_resend:
+                raise RuntimeError(
+                    "this report was already sent to these recipients; "
+                    "use --allow-resend only when another delivery is intentional"
+                )
+            if not options.bypass_review:
+                config = settings.summarization
+                reviewed = run_web_review(
+                    report,
+                    renderer,
+                    sender=settings.email.sender,
+                    recipients=settings.email.recipients,
+                    subject=renderer.render_subject(settings.email.subject, report),
+                    credential_required=bool(
+                        settings.email.smtp.username and settings.email.smtp.password is None
+                    ),
+                    rewrite=lambda candidate: rewrite_report(
+                        candidate,
+                        OllamaSummarizer(
+                            config.model,
+                            config.endpoint,
+                            config.timeout_seconds,
+                            config.audience,
+                            config.instructions,
+                        ),
+                    ),
+                )
+                if reviewed is None:
+                    logger.info(
+                        "report_email_denied",
+                        item_count=len(report.items),
+                        report_date=report.report_date.isoformat(),
+                    )
+                    return 0
+                report = reviewed.report
+                review_credential = reviewed.credential
+            else:
+                review_credential = None
+            message = compose_email(
+                sender=settings.email.sender,
+                recipients=settings.email.recipients,
+                subject=renderer.render_subject(settings.email.subject, report),
+                html=renderer.render_html(report),
+                text=renderer.render_text(report),
+            )
+            SMTPDelivery(
+                smtp_config_for_delivery(settings.email.smtp, review_credential)
+            ).deliver(message)
+            with database.session() as session:
+                DeliveryRepository(session).record(
+                    report.report_date, settings.email.recipients
+                )
             logger.info(
                 "report_email_sent",
                 recipient_count=len(settings.email.recipients),

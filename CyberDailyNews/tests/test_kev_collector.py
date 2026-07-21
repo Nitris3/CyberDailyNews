@@ -70,3 +70,23 @@ def test_kev_collector_skips_disabled_source() -> None:
     )
 
     assert collector.collect() == ()
+
+
+def test_kev_collector_reuses_fresh_disk_cache(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    calls = 0
+
+    def fetcher(url: str, timeout: float) -> bytes:
+        nonlocal calls
+        calls += 1
+        return catalog()
+
+    collector = KEVCollector(
+        source(),
+        fetcher=fetcher,
+        cache_path=tmp_path / "kev.cache.json",
+        cache_hours=6,
+    )
+
+    assert collector.collect()
+    assert collector.collect()
+    assert calls == 1

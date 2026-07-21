@@ -8,6 +8,7 @@ __pycache__/
 .coverage
 htmlcov/
 data/*.db
+data/*.cache.json
 logs/*.log
 reports/*.html
 .env
