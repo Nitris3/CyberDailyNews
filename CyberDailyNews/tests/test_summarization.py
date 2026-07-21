@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from ccip.summarization import OllamaSummarizer, SummarizationError, build_prompt
+from ccip.summarization import OllamaSummarizer, SummarizationError, build_prompt, check_ollama
 
 
 class FakeResponse(io.BytesIO):
@@ -70,3 +70,27 @@ def test_ollama_rewrites_title_and_summary(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert result.title == "Simple title"
     assert result.summary == "Simple summary."
+
+
+def test_ollama_check_confirms_configured_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "ccip.summarization.urlopen",
+        lambda request, timeout: FakeResponse(b'{"models":[{"name":"llama3.2:3b"}]}'),
+    )
+
+    status = check_ollama("http://127.0.0.1:11434", "llama3.2:3b")
+
+    assert status.available is True
+    assert "ready" in status.message
+
+
+def test_ollama_check_reports_missing_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "ccip.summarization.urlopen",
+        lambda request, timeout: FakeResponse(b'{"models":[]}'),
+    )
+
+    status = check_ollama("http://127.0.0.1:11434", "missing")
+
+    assert status.available is False
+    assert "not installed" in status.message

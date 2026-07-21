@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import Date, DateTime, Float, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -15,6 +15,16 @@ from ccip.domain import IntelligenceItem, Severity
 
 class Base(DeclarativeBase):
     pass
+
+
+CURRENT_SCHEMA_VERSION = 1
+
+
+class SchemaVersionRecord(Base):
+    __tablename__ = "schema_version"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    version: Mapped[int] = mapped_column(Integer)
 
 
 class ArticleRecord(Base):
@@ -78,6 +88,20 @@ class DeliveryRecord(Base):
     )
 
 
+class DeliveryAttemptRecord(Base):
+    __tablename__ = "delivery_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    recipients: Mapped[str] = mapped_column(String(2048))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    item_count: Mapped[int] = mapped_column(default=0)
+    detail: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now().astimezone(), index=True
+    )
+
+
 def build_engine(url: str, *, echo: bool = False) -> Engine:
     return create_engine(url, echo=echo)
 
@@ -89,6 +113,18 @@ class Database:
 
     def create_schema(self) -> None:
         Base.metadata.create_all(self.engine)
+        self.migrate()
+
+    def migrate(self) -> None:
+        """Record additive schema state and provide a boundary for future migrations."""
+        with self._sessions.begin() as session:
+            record = session.get(SchemaVersionRecord, 1)
+            if record is None:
+                session.add(SchemaVersionRecord(id=1, version=CURRENT_SCHEMA_VERSION))
+            elif record.version > CURRENT_SCHEMA_VERSION:
+                raise RuntimeError("database schema is newer than this application")
+            else:
+                record.version = CURRENT_SCHEMA_VERSION
 
     @contextmanager
     def session(self) -> Iterator[Session]:

@@ -1,0 +1,28 @@
+name: Windows CI
+
+on: [push, pull_request]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        shell: pwsh
+        run: python -m pip install -e ".[dev]"
+      - name: Test
+        shell: pwsh
+        run: python -m pytest
+      - name: Lint
+        shell: pwsh
+        run: python -m ruff check .
+      - name: Type check
+        shell: pwsh
+        run: python -m mypy src
+      - name: Validate generic no-AI setup
+        shell: pwsh
+        run: python -c "from ccip.config import load_settings; from ccip.cli import build_summarizer; s=load_settings('config/ccip.yml'); assert build_summarizer(s) is None"

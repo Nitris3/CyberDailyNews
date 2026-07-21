@@ -68,3 +68,26 @@ def test_existing_article_is_skipped_before_processing() -> None:
     pipeline.run()
 
     assert processor.calls == 1
+
+
+def test_retention_skips_expired_items_before_processing() -> None:
+    database = Database(build_engine("sqlite+pysqlite:///:memory:"))
+    database.create_schema()
+    expired = CollectedItem(
+        external_id="expired",
+        source="Static",
+        title="Expired",
+        url="https://example.com/expired",
+        published_at=datetime(2020, 1, 1, tzinfo=UTC),
+        content="Old news",
+        category="News",
+    )
+    processor = CountingProcessor()
+
+    result = IngestionPipeline(
+        database, (StaticCollector((expired,)),), processor, retention_days=365
+    ).run()
+
+    assert result.stored == 0
+    assert result.skipped == 1
+    assert processor.calls == 0

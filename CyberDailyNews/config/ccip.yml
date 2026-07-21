@@ -52,6 +52,13 @@ collection:
   source_timeout_seconds: 10
   kev_cache_hours: 6
   disabled_sources: []
+  retention_days: 365
+  retry_attempts: 2
+  retry_backoff_seconds: 0.5
+  stale_after_days: 14
+
+report:
+  timezone: local
 
 email:
   sender: cyber-intelligence@example.com

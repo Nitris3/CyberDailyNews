@@ -8,10 +8,12 @@ import os
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from time import perf_counter
 
 import structlog
 from pydantic import SecretStr
 
+from ccip.collection_status import record_rescore_seconds, write_collection_status
 from ccip.collectors import KEVCollector, RSSCollector
 from ccip.config import SMTPConfig, load_settings
 from ccip.dashboard import run_dashboard
@@ -172,7 +174,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 scoring=settings.scoring,
             ),
             max_workers=settings.collection.max_workers,
+            retention_days=settings.collection.retention_days,
+            retry_attempts=settings.collection.retry_attempts,
+            retry_backoff_seconds=settings.collection.retry_backoff_seconds,
+            stale_after_days=settings.collection.stale_after_days,
         ).run()
+        write_collection_status(result)
         structlog.get_logger(__name__).info(
             "collection_command_completed",
             stored=result.stored,
@@ -180,12 +187,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
             total_seconds=result.total_seconds,
         )
         if options.command == "scheduled-run":
+            rescore_started = perf_counter()
             rescore_result = rescore_articles(
                 database,
                 settings.scoring,
                 {source.name: source.priority for source in settings.sources},
                 apply=True,
             )
+            record_rescore_seconds(perf_counter() - rescore_started)
             structlog.get_logger(__name__).info(
                 "scheduled_rescore_completed",
                 examined=rescore_result.examined,
@@ -205,7 +214,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
             applied=options.apply,
         )
     if options.command == "preview":
-        builder = DailyReportBuilder(database, max_items=settings.email.max_items)
+        builder = DailyReportBuilder(
+            database,
+            max_items=settings.email.max_items,
+            timezone_name=settings.report.timezone,
+        )
         report = builder.build(options.date)
         if options.resummarize or settings.summarization.provider == "ollama":
             config = settings.summarization
@@ -216,7 +229,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 config.audience,
                 config.instructions,
             )
-            report = rewrite_report(report, summarizer)
+            report = rewrite_report(
+                report,
+                summarizer,
+                fallback_on_error=settings.summarization.fallback_to_rules,
+            )
         renderer = ReportRenderer(
             settings.email.template_directory,
             html_template=settings.email.html_template,
@@ -233,7 +250,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
             opened=options.open,
         )
     if options.command == "send":
-        builder = DailyReportBuilder(database, max_items=settings.email.max_items)
+        builder = DailyReportBuilder(
+            database,
+            max_items=settings.email.max_items,
+            timezone_name=settings.report.timezone,
+        )
         report = builder.build(options.date)
         if options.resummarize or settings.summarization.provider == "ollama":
             config = settings.summarization
@@ -246,6 +267,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     config.audience,
                     config.instructions,
                 ),
+                fallback_on_error=config.fallback_to_rules,
             )
         renderer = ReportRenderer(
             settings.email.template_directory,
@@ -261,6 +283,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     report.report_date, settings.email.recipients
                 )
             if already_sent and not options.allow_resend:
+                with database.session() as session:
+                    DeliveryRepository(session).record_attempt(
+                        report.report_date,
+                        settings.email.recipients,
+                        status="blocked",
+                        item_count=len(report.items),
+                        detail="Duplicate delivery prevented",
+                    )
                 raise RuntimeError(
                     "this report was already sent to these recipients; "
                     "use --allow-resend only when another delivery is intentional"
@@ -285,9 +315,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
                             config.audience,
                             config.instructions,
                         ),
+                        fallback_on_error=config.fallback_to_rules,
                     ),
                 )
                 if reviewed is None:
+                    with database.session() as session:
+                        DeliveryRepository(session).record_attempt(
+                            report.report_date,
+                            settings.email.recipients,
+                            status="denied",
+                            item_count=len(report.items),
+                            detail="Reviewer denied delivery",
+                        )
                     logger.info(
                         "report_email_denied",
                         item_count=len(report.items),
@@ -305,12 +344,28 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 html=renderer.render_html(report),
                 text=renderer.render_text(report),
             )
-            SMTPDelivery(
-                smtp_config_for_delivery(settings.email.smtp, review_credential)
-            ).deliver(message)
+            try:
+                SMTPDelivery(
+                    smtp_config_for_delivery(settings.email.smtp, review_credential)
+                ).deliver(message)
+            except Exception as error:
+                with database.session() as session:
+                    DeliveryRepository(session).record_attempt(
+                        report.report_date,
+                        settings.email.recipients,
+                        status="failed",
+                        item_count=len(report.items),
+                        detail=str(error),
+                    )
+                raise
             with database.session() as session:
-                DeliveryRepository(session).record(
-                    report.report_date, settings.email.recipients
+                repository = DeliveryRepository(session)
+                repository.record(report.report_date, settings.email.recipients)
+                repository.record_attempt(
+                    report.report_date,
+                    settings.email.recipients,
+                    status="sent",
+                    item_count=len(report.items),
                 )
             logger.info(
                 "report_email_sent",

@@ -75,3 +75,32 @@ def test_collection_runner_isolates_failure_and_reports_health() -> None:
         HealthStatus.FAILED,
         HealthStatus.HEALTHY,
     ]
+
+
+def test_collection_runner_retries_transient_failure_without_delay() -> None:
+    attempts = 0
+
+    def flaky_fetch(url: str, timeout: float) -> bytes:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError("temporary")
+        return VALID_FEED
+
+    result = CollectionRunner(
+        (RSSCollector(source(), fetcher=flaky_fetch),),
+        retry_attempts=1,
+        retry_backoff_seconds=0,
+    ).run()
+
+    assert attempts == 2
+    assert result.sources[0].status == HealthStatus.HEALTHY
+
+
+def test_collection_runner_marks_old_feed_as_stale() -> None:
+    old_feed = VALID_FEED.replace(b"20 Jul 2026", b"20 Jul 2020")
+    collector = RSSCollector(source(), fetcher=lambda url, timeout: old_feed)
+
+    result = CollectionRunner((collector,), stale_after_days=14).run()
+
+    assert result.sources[0].status == HealthStatus.STALE

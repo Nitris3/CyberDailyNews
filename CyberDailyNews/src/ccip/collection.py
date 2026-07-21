@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import StrEnum
+from time import sleep
 
 import structlog
 
@@ -19,6 +21,7 @@ class HealthStatus(StrEnum):
     HEALTHY = "healthy"
     EMPTY = "empty"
     FAILED = "failed"
+    STALE = "stale"
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,9 +39,20 @@ class CollectionResult:
 
 
 class CollectionRunner:
-    def __init__(self, collectors: tuple[Collector, ...], *, max_workers: int = 8) -> None:
+    def __init__(
+        self,
+        collectors: tuple[Collector, ...],
+        *,
+        max_workers: int = 8,
+        retry_attempts: int = 2,
+        retry_backoff_seconds: float = 0.5,
+        stale_after_days: int = 14,
+    ) -> None:
         self.collectors = collectors
         self.max_workers = max_workers
+        self.retry_attempts = retry_attempts
+        self.retry_backoff_seconds = retry_backoff_seconds
+        self.stale_after_days = stale_after_days
 
     def run(self) -> CollectionResult:
         items: list[CollectedItem] = []
@@ -61,7 +75,12 @@ class CollectionRunner:
                 unique = [item for item in collected if (item.source, item.external_id) not in seen]
                 seen.update((item.source, item.external_id) for item in unique)
                 items.extend(unique)
-                status = HealthStatus.HEALTHY if unique else HealthStatus.EMPTY
+                stale_cutoff = datetime.now().astimezone() - timedelta(days=self.stale_after_days)
+                status = (
+                    HealthStatus.STALE
+                    if unique and max(item.published_at for item in unique) < stale_cutoff
+                    else HealthStatus.HEALTHY if unique else HealthStatus.EMPTY
+                )
                 health.append(SourceHealth(collector.name, status, len(unique)))
                 logger.info(
                     "source_collection_completed",
@@ -79,11 +98,16 @@ class CollectionRunner:
                 )
         return CollectionResult(tuple(items), tuple(health))
 
-    @staticmethod
     def _collect(
+        self,
         collector: Collector,
     ) -> tuple[Collector, Sequence[CollectedItem], Exception | None]:
-        try:
-            return collector, collector.collect(), None
-        except Exception as error:
-            return collector, (), error
+        error: Exception | None = None
+        for attempt in range(self.retry_attempts + 1):
+            try:
+                return collector, collector.collect(), None
+            except Exception as caught:
+                error = caught
+                if attempt < self.retry_attempts:
+                    sleep(self.retry_backoff_seconds * (2**attempt))
+        return collector, (), error

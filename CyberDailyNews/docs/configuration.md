@@ -9,6 +9,12 @@ All commands below run from the `CyberDailyNews` project directory in PowerShell
 
 ## 1. Install the application
 
+For a one-click Windows setup, double-click `Setup-CyberDailyNews.cmd`. It creates the
+environment, installs the project, creates the ignored local configuration, initializes
+the database, and opens the dashboard. It never installs Ollama or enables AI.
+
+For manual or development installation:
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -119,6 +125,18 @@ Application (client) ID after registering and consenting to the application. The
 are stored only in the ignored local configuration. The dashboard continues to show the
 integration as incomplete until administrator consent and API validation are available.
 
+After valid IDs and administrator consent are available, enable the connection and use
+**Test Microsoft sign-in**. The dashboard opens Microsoft's device sign-in page and shows
+a one-time code. Microsoft handles the password, MFA, Conditional Access, and consent.
+The delegated access token is used only to confirm sign-in and is then discarded; it is
+never written to configuration or disk.
+
+### Back up or restore local settings
+
+Use **Download settings backup** in the dashboard to save the current local YAML. SMTP
+passwords are always removed. Use **Restore settings** to select a YAML backup; the file
+is validated before it replaces the ignored local configuration.
+
 ### Add an article manually
 
 Use **Add an article to this email** inside the live review screen for a story found
@@ -193,6 +211,19 @@ The large CISA KEV catalog is cached locally for six hours by default. Set
 Invalid responses are never cached. Use the dashboard's **News sources** card to include
 or exclude individual feeds without editing YAML. Reopening the launcher reuses the
 existing dashboard instead of starting another server.
+
+Transient source failures are retried with exponential backoff. Sources whose newest
+entry exceeds `stale_after_days` are marked stale in Collection Health. Retention removes
+old stored articles and rejects expired feed entries before processing, preventing them
+from being reintroduced by large catalogs.
+
+The dashboard begins with a setup checklist and the daily **Collect → Preview → Review &
+Send** workflow. Settings and administration are collapsed until needed. Keyboard users
+have a skip link and visible focus indicators; status changes use an ARIA live region.
+
+Database schema versions are recorded automatically when the application starts. This
+provides a safe migration boundary for future releases and refuses databases created by
+a newer incompatible application version.
 
 ### Configure a daily schedule
 
@@ -322,8 +353,7 @@ Use `--bypass-review` only when intentionally skipping this human gate; it still
 `--confirm-send` and still refuses an initially empty report.
 
 After successful delivery, the date and recipient set are recorded locally. Another
-normal send of the same report is blocked. Use **Review & Send Again** in the dashboard
-only when a repeat delivery is intentional.
+dashboard send of the same report is blocked to prevent accidental duplicate delivery.
 
 If `email.smtp.username` is configured and no password is present in YAML or
 `CCIP_SMTP_PASSWORD`, the command securely prompts for the SMTP credential every time.
@@ -416,6 +446,11 @@ database:
 | `microsoft_365_copilot.enabled` | `false` | Reserved until consent/API validation succeeds |
 | `schedule.enabled` | `false` | Enable daily collection and rescoring |
 | `schedule.daily_time` | `08:00` | Local run time in 24-hour `HH:MM` format |
+| `report.timezone` | `local` | Local computer time or an IANA zone such as `America/Chicago` |
+| `collection.retention_days` | `365`; 30–3650 | Stored article retention and oldest accepted feed age |
+| `collection.retry_attempts` | `2`; 0–5 | Retries after the initial source request |
+| `collection.retry_backoff_seconds` | `0.5`; 0–30 | Initial exponential retry delay |
+| `collection.stale_after_days` | `14`; 1–365 | Age that marks a source stale |
 | `email.sender` | required | From address |
 | `email.recipients` | at least one | Destination addresses |
 | `email.subject` | dated default template | Email subject template |

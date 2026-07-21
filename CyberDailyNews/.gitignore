@@ -10,6 +10,8 @@ htmlcov/
 data/*.db
 data/*.cache.json
 data/*.session.json
+data/*.status.json
+data/dashboard.lock
 logs/*.log
 reports/*.html
 .env

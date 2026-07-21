@@ -22,6 +22,30 @@ class RewrittenBrief:
     summary: str
 
 
+@dataclass(frozen=True, slots=True)
+class OllamaStatus:
+    available: bool
+    message: str
+
+
+def check_ollama(endpoint: str, model: str, timeout_seconds: float = 5) -> OllamaStatus:
+    request = Request(f"{endpoint.rstrip('/')}/api/tags", method="GET")
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+            document = json.loads(response.read())
+        models = document.get("models", []) if isinstance(document, dict) else []
+        names = {
+            str(item.get("name", ""))
+            for item in models
+            if isinstance(item, dict)
+        }
+    except Exception as error:
+        return OllamaStatus(False, f"Ollama is unavailable: {error}")
+    if model not in names:
+        return OllamaStatus(False, f"Ollama is running, but model '{model}' is not installed.")
+    return OllamaStatus(True, f"Ollama is ready with model '{model}'.")
+
+
 def build_prompt(
     *,
     title: str,

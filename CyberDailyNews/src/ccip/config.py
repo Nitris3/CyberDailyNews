@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
@@ -85,6 +86,25 @@ class CollectionConfig(StrictModel):
     source_timeout_seconds: float = Field(default=10, gt=0, le=120)
     kev_cache_hours: float = Field(default=6, ge=0, le=168)
     disabled_sources: tuple[str, ...] = ()
+    retention_days: int = Field(default=365, ge=30, le=3650)
+    retry_attempts: int = Field(default=2, ge=0, le=5)
+    retry_backoff_seconds: float = Field(default=0.5, ge=0, le=30)
+    stale_after_days: int = Field(default=14, ge=1, le=365)
+
+
+class ReportConfig(StrictModel):
+    timezone: str = "local"
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_is_valid(cls, value: str) -> str:
+        if value == "local":
+            return value
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("timezone must be 'local' or a valid IANA timezone") from error
+        return value
 
 
 class SMTPConfig(StrictModel):
@@ -131,6 +151,7 @@ class Settings(StrictModel):
     microsoft_365_copilot: Microsoft365CopilotConfig = Microsoft365CopilotConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     collection: CollectionConfig = CollectionConfig()
+    report: ReportConfig = ReportConfig()
     email: EmailConfig
     source_files: tuple[str, ...] = ()
     sources: tuple[SourceConfig, ...] = ()

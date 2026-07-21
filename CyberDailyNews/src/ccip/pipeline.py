@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from time import perf_counter
 
 import structlog
@@ -35,15 +36,29 @@ class IngestionPipeline:
         processor: Processor,
         *,
         max_workers: int = 8,
+        retention_days: int = 365,
+        retry_attempts: int = 2,
+        retry_backoff_seconds: float = 0.5,
+        stale_after_days: int = 14,
     ) -> None:
         self.database = database
         self.collectors = collectors
         self.processor = processor
         self.max_workers = max_workers
+        self.retention_days = retention_days
+        self.retry_attempts = retry_attempts
+        self.retry_backoff_seconds = retry_backoff_seconds
+        self.stale_after_days = stale_after_days
 
     def run(self) -> IngestionResult:
         started = perf_counter()
-        collection = CollectionRunner(self.collectors, max_workers=self.max_workers).run()
+        collection = CollectionRunner(
+            self.collectors,
+            max_workers=self.max_workers,
+            retry_attempts=self.retry_attempts,
+            retry_backoff_seconds=self.retry_backoff_seconds,
+            stale_after_days=self.stale_after_days,
+        ).run()
         collected_at = perf_counter()
         processed = 0
         stored = 0
@@ -51,7 +66,11 @@ class IngestionPipeline:
         with self.database.session() as session:
             repository = ArticleRepository(session)
             existing = repository.identities()
+            cutoff = datetime.now().astimezone() - timedelta(days=self.retention_days)
             for collected_item in collection.items:
+                if collected_item.published_at < cutoff:
+                    skipped += 1
+                    continue
                 identity = (collected_item.source, collected_item.external_id)
                 if identity in existing:
                     skipped += 1
@@ -64,6 +83,7 @@ class IngestionPipeline:
                 repository.add(item)
                 existing.add(identity)
                 stored += 1
+            pruned = repository.prune_before(cutoff)
         finished = perf_counter()
         result = IngestionResult(
             collected=len(collection.items),
@@ -84,5 +104,6 @@ class IngestionPipeline:
             collection_seconds=result.collection_seconds,
             processing_seconds=result.processing_seconds,
             total_seconds=result.total_seconds,
+            pruned=pruned,
         )
         return result

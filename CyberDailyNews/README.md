@@ -14,10 +14,15 @@ pytest
 
 ## Browser dashboard
 
-On Windows, double-click `Start-CyberDailyNews.cmd`.
+On Windows, double-click `Setup-CyberDailyNews.cmd` once for first-time setup. It creates
+an isolated Python environment, installs the application, creates the ignored local
+configuration, initializes the database, and opens the dashboard. Later, double-click
+`Start-CyberDailyNews.cmd`.
 The localhost dashboard provides friendly controls for AI preference, executive prompts,
 scoring, company watchlists, email settings, collection, previews, rescoring, and reviewed
 delivery. Personal configuration remains in the ignored `config/ccip.local.yml` file.
+The main screen follows the daily **Collect → Preview → Review & Send** workflow; setup
+and administrative controls stay collapsed until needed.
 
 Configuration is read from `config/ccip.yml`. Keep SMTP credentials out of source
 control and provide them with `CCIP_SMTP_USERNAME` and `CCIP_SMTP_PASSWORD`.

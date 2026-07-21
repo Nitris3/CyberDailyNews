@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\pythonw.exe" (
-  echo Python environment not found. Complete the installation steps first.
+  echo Python environment not found. Run Setup-CyberDailyNews.cmd first.
   pause
   exit /b 1
 )

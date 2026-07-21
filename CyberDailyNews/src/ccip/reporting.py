@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 from ccip.db import Database
 from ccip.domain import DailyReport, IntelligenceItem
@@ -18,13 +19,23 @@ from ccip.summarization import OllamaSummarizer
 
 
 class DailyReportBuilder:
-    def __init__(self, database: Database, *, max_items: int = 25) -> None:
+    def __init__(
+        self, database: Database, *, max_items: int = 25, timezone_name: str = "local"
+    ) -> None:
         self.database = database
         self.max_items = max_items
+        self.timezone_name = timezone_name
 
     def build(self, report_date: date) -> DailyReport:
-        start = datetime.combine(report_date, time.min, tzinfo=UTC)
-        end = start + timedelta(days=1)
+        timezone = (
+            datetime.now().astimezone().tzinfo
+            if self.timezone_name == "local"
+            else ZoneInfo(self.timezone_name)
+        )
+        start = datetime.combine(report_date, time.min, tzinfo=timezone).astimezone(UTC)
+        end = (
+            datetime.combine(report_date, time.min, tzinfo=timezone) + timedelta(days=1)
+        ).astimezone(UTC)
         with self.database.session() as session:
             items = ArticleRepository(session).published_between(start, end)
         return DailyReport(report_date, tuple(unique_articles(items)[: self.max_items]))
@@ -101,10 +112,20 @@ def open_preview(path: str | Path) -> bool:
     return webbrowser.open(Path(path).resolve().as_uri())
 
 
-def rewrite_report(report: DailyReport, summarizer: OllamaSummarizer) -> DailyReport:
+def rewrite_report(
+    report: DailyReport,
+    summarizer: OllamaSummarizer,
+    *,
+    fallback_on_error: bool = False,
+) -> DailyReport:
     """Rewrite display copy without changing persisted source records."""
     rewritten = []
     for item in report.items:
-        brief = summarizer.rewrite_brief(title=item.title, content=item.summary)
+        try:
+            brief = summarizer.rewrite_brief(title=item.title, content=item.summary)
+        except Exception:
+            if fallback_on_error:
+                return report
+            raise
         rewritten.append(replace(item, title=brief.title, summary=brief.summary))
     return replace(report, items=tuple(rewritten))
