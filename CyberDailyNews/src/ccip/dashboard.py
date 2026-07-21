@@ -28,6 +28,7 @@ def save_dashboard_config(path: Path, form: dict[str, list[str]]) -> None:
     """Persist non-secret dashboard settings only to an ignored local config."""
     if not path.name.endswith(".local.yml"):
         raise ValueError("Dashboard changes require a config/*.local.yml file")
+    current = load_settings(path)
     document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     summary = document.setdefault("summarization", {})
     summary["provider"] = _form_value(form, "provider", "rules")
@@ -70,6 +71,12 @@ def save_dashboard_config(path: Path, form: dict[str, list[str]]) -> None:
     schedule = document.setdefault("schedule", {})
     schedule["enabled"] = form.get("schedule_enabled") == ["yes"]
     schedule["daily_time"] = _form_value(form, "daily_time", "08:00")
+    if "source_controls_present" in form:
+        enabled_sources = set(form.get("enabled_source", []))
+        collection = document.setdefault("collection", {})
+        collection["disabled_sources"] = [
+            source.name for source in current.sources if source.name not in enabled_sources
+        ]
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     load_settings(path)
 
@@ -87,6 +94,13 @@ def render_dashboard(settings: Settings, token: str, message: str = "", popup: s
     )
     s = settings.scoring
     microsoft = settings.microsoft_365_copilot
+    disabled_sources = set(settings.collection.disabled_sources)
+    source_controls = "".join(
+        f'<label><input style="width:auto" type="checkbox" name="enabled_source" '
+        f'value="{html.escape(source.name, quote=True)}"'
+        f'{checked(source.name not in disabled_sources)}> {html.escape(source.name)}</label>'
+        for source in settings.sources
+    )
     if microsoft.enabled:
         microsoft_status = "Configuration saved; live API validation is still required."
     elif microsoft.tenant_id and microsoft.client_id:
@@ -140,6 +154,7 @@ def render_dashboard(settings: Settings, token: str, message: str = "", popup: s
     <label><input style="width:auto" type="checkbox" name="schedule_enabled" value="yes"{checked(settings.schedule.enabled)}> Enable daily collection</label>
     <label>Run time<input name="daily_time" type="time" value="{settings.schedule.daily_time}"></label>
     <small>Windows runs this task even when the dashboard is closed. Time uses this computer's local timezone.</small></section>
+    <section class="card"><h2>News sources</h2><p>Select the feeds included during collection.</p><input type="hidden" name="source_controls_present" value="yes">{source_controls}</section>
     </div><div class="card" style="margin-top:16px"><div class="actions"><button name="action" value="save" class="good">Save settings</button><button name="action" value="collect">Collect news</button><button name="action" value="preview">Open preview</button><button name="action" value="rescore-apply" class="secondary">Rescore articles</button><button name="action" value="review-send" class="good">Review & Send</button><button name="action" value="review-resend" class="warn">Review & Send Again</button></div><small>Send Again is only for an intentional repeat delivery of today's report.</small></div></form>
     <script>document.querySelector('form').addEventListener('submit',e=>{{if(e.submitter&&e.submitter.value==='collect'){{let n=document.querySelector('.notice');if(!n){{n=document.createElement('div');n.className='notice';document.querySelector('main').prepend(n)}}n.textContent='Collecting news…';}}}})</script></main></body></html>"""
     return page.encode()
@@ -147,6 +162,7 @@ def render_dashboard(settings: Settings, token: str, message: str = "", popup: s
 
 def run_dashboard(config_path: str | Path) -> None:
     path = Path(config_path).resolve()
+    session_path = path.parent.parent / "data" / "dashboard.session.json"
     token = secrets.token_urlsafe(24)
     state: dict[str, object] = {"message": "", "popup": "", "busy": False}
     state_lock = threading.Lock()
@@ -155,7 +171,10 @@ def run_dashboard(config_path: str | Path) -> None:
         args = [sys.executable, "-m", "ccip.cli", "--config", str(path), *arguments]
         if wait:
             completed = subprocess.run(args, capture_output=True, text=True, timeout=600, check=False)
-            return (completed.stdout or completed.stderr).strip() or "Action completed."
+            output = (completed.stdout or completed.stderr).strip()
+            if completed.returncode != 0:
+                raise RuntimeError(output or f"Command failed with exit code {completed.returncode}")
+            return output or "Action completed."
         subprocess.Popen(args)  # noqa: S603
         return "Opened in a new browser tab."
 
@@ -250,8 +269,24 @@ def run_dashboard(config_path: str | Path) -> None:
                 state["message"] = f"Action failed: {error}"
             self._page()
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-
-    port = server.server_address[1]
+    port = 8765
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError:
+        try:
+            existing = json.loads(session_path.read_text(encoding="utf-8"))
+            existing_token = str(existing["token"])
+        except Exception as error:
+            raise RuntimeError(f"dashboard port {port} is already in use") from error
+        webbrowser.open(
+            f"http://127.0.0.1:{port}/?token={urllib.parse.quote(existing_token)}"
+        )
+        return
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(json.dumps({"token": token}), encoding="utf-8")
     webbrowser.open(f"http://127.0.0.1:{port}/?token={urllib.parse.quote(token)}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        session_path.unlink(missing_ok=True)

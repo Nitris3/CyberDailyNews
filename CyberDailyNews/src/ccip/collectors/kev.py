@@ -72,6 +72,9 @@ class KEVCollector:
         ):
             return cache.read_bytes()
         payload = self.fetcher(self.source.url, self.timeout_seconds)
+        document = json.loads(payload)
+        if not isinstance(document, dict) or not isinstance(document.get("vulnerabilities"), list):
+            raise ValueError("invalid vulnerability catalog")
         if cache is not None and self.cache_seconds > 0:
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_bytes(payload)

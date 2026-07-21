@@ -84,6 +84,7 @@ class CollectionConfig(StrictModel):
     max_workers: int = Field(default=8, ge=1, le=32)
     source_timeout_seconds: float = Field(default=10, gt=0, le=120)
     kev_cache_hours: float = Field(default=6, ge=0, le=168)
+    disabled_sources: tuple[str, ...] = ()
 
 
 class SMTPConfig(StrictModel):

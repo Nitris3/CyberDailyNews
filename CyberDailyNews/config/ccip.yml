@@ -51,6 +51,7 @@ collection:
   max_workers: 8
   source_timeout_seconds: 10
   kev_cache_hours: 6
+  disabled_sources: []
 
 email:
   sender: cyber-intelligence@example.com

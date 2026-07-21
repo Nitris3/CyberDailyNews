@@ -42,3 +42,5 @@ def test_dashboard_polling_disables_collection_while_background_job_runs() -> No
     assert "/status?token=test-token" in page
     assert 'button[value="collect"]' in page
     assert "b.disabled=s.busy" in page
+    assert "News sources" in page
+    assert 'name="enabled_source"' in page

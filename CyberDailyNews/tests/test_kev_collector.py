@@ -90,3 +90,18 @@ def test_kev_collector_reuses_fresh_disk_cache(tmp_path) -> None:  # type: ignor
     assert collector.collect()
     assert collector.collect()
     assert calls == 1
+
+
+def test_kev_collector_does_not_cache_invalid_response(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    cache = tmp_path / "kev.cache.json"
+    collector = KEVCollector(
+        source(),
+        fetcher=lambda url, timeout: b'{"items": []}',
+        cache_path=cache,
+        cache_hours=6,
+    )
+
+    with pytest.raises(CatalogCollectionError):
+        collector.collect()
+
+    assert not cache.exists()

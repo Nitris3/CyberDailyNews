@@ -190,6 +190,9 @@ Collection runs as a background job: the page remains responsive, prevents overl
 runs, and updates the green status area while fetching, rescoring, and completing.
 The large CISA KEV catalog is cached locally for six hours by default. Set
 `collection.kev_cache_hours` to `0` to disable caching or choose up to 168 hours.
+Invalid responses are never cached. Use the dashboard's **News sources** card to include
+or exclude individual feeds without editing YAML. Reopening the launcher reuses the
+existing dashboard instead of starting another server.
 
 ### Configure a daily schedule
 
@@ -200,6 +203,8 @@ never sends email automatically; review and approval remain required.
 
 The dashboard does not need to remain running. Disable the checkbox and save to remove
 the task. The time uses the computer's local timezone and 24-hour `HH:MM` format.
+Scheduled runs explicitly use the project directory, so relative database, template,
+report, and cache paths remain reliable when Windows starts the task unattended.
 
 Edit the `email` section:
 

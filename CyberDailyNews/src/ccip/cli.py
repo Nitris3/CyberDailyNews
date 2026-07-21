@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
@@ -100,6 +101,8 @@ def build_collectors(settings: object) -> tuple[Collector, ...]:
         raise TypeError("settings must be a Settings instance")
     collectors: list[Collector] = []
     for source in settings.sources:
+        if source.name in settings.collection.disabled_sources:
+            continue
         if source.kind == "rss":
             collectors.append(
                 RSSCollector(source, timeout_seconds=settings.collection.source_timeout_seconds)
@@ -150,7 +153,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if options.command == "dashboard":
         run_dashboard(options.config)
         return 0
-    settings = load_settings(options.config)
+    config_path = Path(options.config).resolve()
+    if options.command == "scheduled-run":
+        os.chdir(config_path.parent.parent)
+    settings = load_settings(config_path)
     configure_logging(settings.app.log_level)
     database = Database(build_engine(settings.database.url, echo=settings.database.echo))
     if options.command in {"init-db", "collect", "scheduled-run", "preview", "send", "rescore"}:
