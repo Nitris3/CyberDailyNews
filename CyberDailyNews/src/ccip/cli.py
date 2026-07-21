@@ -16,7 +16,7 @@ from ccip.logging import configure_logging
 from ccip.pipeline import IngestionPipeline
 from ccip.processors import RulesProcessor
 from ccip.rendering import ReportRenderer
-from ccip.reporting import DailyReportBuilder, write_preview
+from ccip.reporting import DailyReportBuilder, open_preview, rewrite_report, write_preview
 from ccip.summarization import CopilotCLISummarizer, OllamaSummarizer, Summarizer
 
 
@@ -29,6 +29,16 @@ def build_parser() -> argparse.ArgumentParser:
     preview = subcommands.add_parser("preview", help="render a daily HTML report without sending")
     preview.add_argument("--date", type=date.fromisoformat, default=date.today())
     preview.add_argument("--output", default=None)
+    preview.add_argument(
+        "--open",
+        action="store_true",
+        help="open the rendered report in the default browser (never sends email)",
+    )
+    preview.add_argument(
+        "--resummarize",
+        action="store_true",
+        help="use the configured local Ollama model to simplify titles and summaries",
+    )
     return parser
 
 
@@ -83,6 +93,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if options.command == "preview":
         builder = DailyReportBuilder(database, max_items=settings.email.max_items)
         report = builder.build(options.date)
+        if options.resummarize:
+            config = settings.summarization
+            summarizer = OllamaSummarizer(
+                config.model,
+                config.endpoint,
+                config.timeout_seconds,
+            )
+            report = rewrite_report(report, summarizer)
         renderer = ReportRenderer(
             settings.email.template_directory,
             html_template=settings.email.html_template,
@@ -90,10 +108,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
         )
         output = options.output or f"reports/daily-news-{options.date.isoformat()}.html"
         path = write_preview(renderer, report, output)
+        if options.open:
+            open_preview(path)
         structlog.get_logger(__name__).info(
             "report_preview_written",
             path=str(path),
             item_count=len(report.items),
+            opened=options.open,
         )
     return 0
 

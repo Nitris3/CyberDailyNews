@@ -49,3 +49,16 @@ def test_ollama_summarizer_rejects_empty_response(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(SummarizationError, match="empty response"):
         OllamaSummarizer("model").summarize(title="Issue", content="Details", max_characters=200)
+
+
+def test_ollama_rewrites_title_and_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    response = {"response": json.dumps({"title": "Simple title", "summary": "Simple summary."})}
+    monkeypatch.setattr(
+        "ccip.summarization.urlopen",
+        lambda request, timeout: FakeResponse(json.dumps(response).encode()),
+    )
+
+    result = OllamaSummarizer("model").rewrite_brief(title="Long title", content="Long text")
+
+    assert result.title == "Simple title"
+    assert result.summary == "Simple summary."

@@ -17,6 +17,12 @@ class Summarizer(Protocol):
     def summarize(self, *, title: str, content: str, max_characters: int) -> str: ...
 
 
+@dataclass(frozen=True, slots=True)
+class RewrittenBrief:
+    title: str
+    summary: str
+
+
 def build_prompt(*, title: str, content: str, max_characters: int) -> str:
     return (
         "Summarize the following cyber-intelligence item for security operations staff. "
@@ -61,6 +67,42 @@ class OllamaSummarizer:
         if not isinstance(result, str) or not result.strip():
             raise SummarizationError("local model returned an empty response")
         return result.strip()[:max_characters]
+
+    def rewrite_brief(self, *, title: str, content: str) -> RewrittenBrief:
+        prompt = (
+            "Rewrite this cyber-intelligence item for a simple executive briefing. "
+            "Return JSON with exactly two strings: title and summary. The title must be a "
+            "plain, factual headline of at most 12 words. The summary must be one high-level "
+            "sentence of at most 35 words. Avoid hype, jargon, headings, and speculation. "
+            "Preserve the affected product and required action when known.\n\n"
+            f"Source title: {title}\nSource text: {content}"
+        )
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "prompt": prompt,
+                "format": "json",
+                "stream": False,
+                "options": {"temperature": 0.1},
+            }
+        ).encode()
+        request = Request(
+            f"{self.endpoint.rstrip('/')}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:  # noqa: S310
+                envelope = json.loads(response.read())
+            result = json.loads(envelope["response"])
+            rewritten_title = result["title"].strip()
+            rewritten_summary = result["summary"].strip()
+        except Exception as error:
+            raise SummarizationError(f"local model rewrite failed: {error}") from error
+        if not rewritten_title or not rewritten_summary:
+            raise SummarizationError("local model returned an incomplete rewrite")
+        return RewrittenBrief(title=rewritten_title[:120], summary=rewritten_summary[:300])
 
 
 @dataclass(frozen=True, slots=True)

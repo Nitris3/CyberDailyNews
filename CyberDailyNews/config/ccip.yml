@@ -7,10 +7,10 @@ database:
   echo: false
 
 summarization:
-  provider: ollama
+  provider: rules
   model: llama3.2:3b
   endpoint: http://127.0.0.1:11434
-  timeout_seconds: 60
+  timeout_seconds: 180
   fallback_to_rules: true
 
 email:
@@ -21,7 +21,7 @@ email:
   template_directory: templates/email
   html_template: daily_news.html.j2
   text_template: daily_news.txt.j2
-  max_items: 25
+  max_items: 5
   smtp:
     host: localhost
     port: 1025
