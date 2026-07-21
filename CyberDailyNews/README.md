@@ -52,6 +52,17 @@ to simplify both headlines and summaries in a preview (stored source records are
 To also use Ollama during collection, explicitly change `summarization.provider` in
 `config/ccip.yml` from `rules` to `ollama`.
 
+Prepare an email safely without sending it:
+
+```powershell
+& ".\.venv\Scripts\python.exe" -m ccip.cli send --date 2026-07-20
+```
+
+Actual SMTP delivery requires the explicit `--confirm-send` flag. Configure the sender,
+recipients, SMTP host, and environment-based credentials before using it.
+When an SMTP username is configured without a stored password, confirmed delivery asks
+for the credential securely on every run.
+
 ## Generative summaries
 
 `summarization.provider` supports `ollama`, `copilot`, or `rules`. Ollama uses the local

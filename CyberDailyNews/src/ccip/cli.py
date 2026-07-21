@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 from collections.abc import Sequence
 from datetime import date
 
 import structlog
+from pydantic import SecretStr
 
 from ccip.collectors import KEVCollector, RSSCollector
-from ccip.config import load_settings
+from ccip.config import SMTPConfig, load_settings
 from ccip.db import Database, build_engine
+from ccip.delivery import SMTPDelivery, compose_email
 from ccip.interfaces import Collector
 from ccip.logging import configure_logging
 from ccip.pipeline import IngestionPipeline
@@ -38,6 +41,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--resummarize",
         action="store_true",
         help="use the configured local Ollama model to simplify titles and summaries",
+    )
+    send = subcommands.add_parser(
+        "send",
+        help="prepare an email; delivery requires the explicit --confirm-send flag",
+    )
+    send.add_argument("--date", type=date.fromisoformat, default=date.today())
+    send.add_argument("--output", default=None, help="dry-run HTML output path")
+    send.add_argument(
+        "--resummarize",
+        action="store_true",
+        help="use the configured local Ollama model to simplify titles and summaries",
+    )
+    delivery = send.add_mutually_exclusive_group()
+    delivery.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="write a local preview without sending (the default)",
+    )
+    delivery.add_argument(
+        "--confirm-send",
+        action="store_true",
+        help="actually deliver through the configured SMTP server",
     )
     return parser
 
@@ -69,12 +94,22 @@ def build_summarizer(settings: object) -> Summarizer | None:
     return None
 
 
+def smtp_config_for_delivery(config: SMTPConfig) -> SMTPConfig:
+    """Prompt for an unstored SMTP credential when authenticated delivery needs one."""
+    if not config.username or config.password is not None:
+        return config
+    password = getpass.getpass(f"SMTP credential for {config.username}: ")
+    if not password:
+        raise RuntimeError("SMTP credential cannot be empty")
+    return config.model_copy(update={"password": SecretStr(password)})
+
+
 def main(arguments: Sequence[str] | None = None) -> int:
     options = build_parser().parse_args(arguments)
     settings = load_settings(options.config)
     configure_logging(settings.app.log_level)
     database = Database(build_engine(settings.database.url, echo=settings.database.echo))
-    if options.command in {"init-db", "collect", "preview"}:
+    if options.command in {"init-db", "collect", "preview", "send"}:
         database.create_schema()
     if options.command == "collect":
         result = IngestionPipeline(
@@ -116,6 +151,46 @@ def main(arguments: Sequence[str] | None = None) -> int:
             item_count=len(report.items),
             opened=options.open,
         )
+    if options.command == "send":
+        builder = DailyReportBuilder(database, max_items=settings.email.max_items)
+        report = builder.build(options.date)
+        if options.resummarize:
+            config = settings.summarization
+            report = rewrite_report(
+                report,
+                OllamaSummarizer(config.model, config.endpoint, config.timeout_seconds),
+            )
+        renderer = ReportRenderer(
+            settings.email.template_directory,
+            html_template=settings.email.html_template,
+            text_template=settings.email.text_template,
+        )
+        html = renderer.render_html(report)
+        message = compose_email(
+            sender=settings.email.sender,
+            recipients=settings.email.recipients,
+            subject=renderer.render_subject(settings.email.subject, report),
+            html=html,
+            text=renderer.render_text(report),
+        )
+        logger = structlog.get_logger(__name__)
+        if options.confirm_send:
+            SMTPDelivery(smtp_config_for_delivery(settings.email.smtp)).deliver(message)
+            logger.info(
+                "report_email_sent",
+                recipient_count=len(settings.email.recipients),
+                item_count=len(report.items),
+                report_date=report.report_date.isoformat(),
+            )
+        else:
+            output = options.output or f"reports/daily-news-{options.date.isoformat()}-dry-run.html"
+            path = write_preview(renderer, report, output)
+            logger.info(
+                "report_email_dry_run",
+                path=str(path),
+                recipient_count=len(settings.email.recipients),
+                item_count=len(report.items),
+            )
     return 0
 
 

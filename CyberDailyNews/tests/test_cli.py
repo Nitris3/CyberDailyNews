@@ -1,4 +1,7 @@
-from ccip.cli import build_parser
+import pytest
+
+from ccip.cli import build_parser, smtp_config_for_delivery
+from ccip.config import SMTPConfig
 
 
 def test_cli_parses_database_initialization() -> None:
@@ -35,3 +38,42 @@ def test_cli_preview_ai_rewrite_is_explicit() -> None:
     arguments = build_parser().parse_args(["preview", "--resummarize"])
 
     assert arguments.resummarize is True
+
+
+def test_cli_send_is_dry_run_by_default() -> None:
+    arguments = build_parser().parse_args(["send", "--date", "2026-07-20"])
+
+    assert arguments.command == "send"
+    assert arguments.confirm_send is False
+    assert arguments.dry_run is False
+
+
+def test_cli_send_requires_explicit_confirmation() -> None:
+    arguments = build_parser().parse_args(["send", "--confirm-send"])
+
+    assert arguments.confirm_send is True
+
+
+def test_cli_send_rejects_dry_run_and_confirmation_together() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["send", "--dry-run", "--confirm-send"])
+
+
+def test_smtp_delivery_prompts_for_unstored_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ccip.cli.getpass.getpass", lambda prompt: "temporary-secret")
+
+    result = smtp_config_for_delivery(
+        SMTPConfig(host="smtp.example.com", username="sender@example.com")
+    )
+
+    assert result.password is not None
+    assert result.password.get_secret_value() == "temporary-secret"
+
+
+def test_smtp_delivery_rejects_empty_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ccip.cli.getpass.getpass", lambda prompt: "")
+
+    with pytest.raises(RuntimeError, match="cannot be empty"):
+        smtp_config_for_delivery(
+            SMTPConfig(host="smtp.example.com", username="sender@example.com")
+        )

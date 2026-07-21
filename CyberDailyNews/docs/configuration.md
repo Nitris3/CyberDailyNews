@@ -20,8 +20,16 @@ The application requires Python 3.12 or newer. Configuration defaults to
 `config/ccip.yml`; select another file by placing `--config path\to\file.yml` before
 the command name.
 
+Keep personal addresses and SMTP settings in `config/ccip.local.yml`. Files matching
+`config/*.local.yml` are ignored by Git. Start by copying the tracked example, then edit
+only the ignored copy:
+
 ```powershell
-python -m ccip.cli --config config\ccip.yml preview --open
+Copy-Item config\ccip.yml config\ccip.local.yml
+```
+
+```powershell
+python -m ccip.cli --config config\ccip.local.yml preview --open
 ```
 
 ## 2. Choose the summarization mode
@@ -183,11 +191,41 @@ $env:CCIP_SMTP_USERNAME = "service-account@example.com"
 $env:CCIP_SMTP_PASSWORD = "replace-with-secret"
 ```
 
-These environment variables override the matching YAML values. SMTP composition and
-delivery are implemented, but the current CLI does not yet expose a `send` command;
-previewing and collection never send mail.
+These environment variables override the matching YAML values. Previewing and collection
+never send mail.
 
-## 6. Configure intelligence sources
+## 6. Test and send email safely
+
+The `send` command is a dry run unless delivery is explicitly confirmed. First prepare
+the exact email as local HTML:
+
+```powershell
+python -m ccip.cli send --date 2026-07-20
+```
+
+The dry run uses the configured sender, recipients, subject, templates, and five-item
+limit, but makes no SMTP connection. Choose a path or request AI rewriting if wanted:
+
+```powershell
+python -m ccip.cli send --date 2026-07-20 --output reports\send-test.html
+python -m ccip.cli send --date 2026-07-20 --resummarize
+```
+
+After reviewing the output and configuring SMTP secrets, explicitly authorize delivery:
+
+```powershell
+python -m ccip.cli --config config\ccip.local.yml send --date 2026-07-20 --confirm-send
+```
+
+If `email.smtp.username` is configured and no password is present in YAML or
+`CCIP_SMTP_PASSWORD`, the command securely prompts for the SMTP credential every time.
+Input is hidden and is retained only for that process. For Gmail accounts with two-step
+verification, enter an app password rather than the normal account password.
+
+`--dry-run` may be supplied for clarity, but it is already the default. `--dry-run` and
+`--confirm-send` are mutually exclusive. There is no implicit or scheduled delivery.
+
+## 7. Configure intelligence sources
 
 The main file references `config/sources.yml`:
 
@@ -220,7 +258,7 @@ Each source supports:
 
 Duplicate names and duplicate URLs are rejected.
 
-## 7. Configure application and database behavior
+## 8. Configure application and database behavior
 
 ```yaml
 app:
@@ -237,7 +275,7 @@ database:
 - `database.url`: SQLAlchemy database URL. The shipped setup uses local SQLite.
 - `database.echo`: emits SQL statements when `true`; mainly useful for debugging.
 
-## 8. Complete setting reference
+## 9. Complete setting reference
 
 | Setting | Default/constraint | Purpose |
 |---|---|---|
@@ -270,7 +308,7 @@ database:
 Configuration is strict: unknown keys, invalid values, missing required email/SMTP
 fields, and duplicate source names or URLs fail immediately with a validation error.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Ollama preview times out
 

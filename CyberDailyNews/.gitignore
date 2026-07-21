@@ -11,3 +11,4 @@ data/*.db
 logs/*.log
 reports/*.html
 .env
+config/*.local.yml
