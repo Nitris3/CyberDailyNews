@@ -1,8 +1,13 @@
-Daily Cyber Intelligence — {{ report.report_date }}
+CYBER DAILY NEWS | {{ report.report_date }}
+{{ report.items|length }} prioritized {% if report.items|length == 1 %}story{% else %}stories{% endif %}
 {% for item in report.items %}
-{{ item.title }}
-{{ item.category }} | {{ item.source }} | {{ item.severity.value }} | {{ item.score }}
+{{ loop.index }}. {{ item.title }}
+{{ item.category }} | {{ item.source }} | relevance {{ '%.1f'|format(item.score) }}/10 | {{ item.severity.value }} priority
 {{ item.summary }}
+
+WHY THIS IS RELEVANT
+{% if item.score >= 9 %}A top-priority development with potential for significant business or security impact. Leadership awareness and timely review are recommended.{% elif item.score >= 7 %}A high-priority development that may affect organizational risk, operations, or near-term security decisions.{% else %}One of today's strongest-ranked developments, included for situational awareness and potential organizational impact.{% endif %}
+
 {{ item.url }}
 {% else %}
 No qualifying cyber-intelligence items were identified for this report.

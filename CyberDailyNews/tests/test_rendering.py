@@ -25,5 +25,11 @@ def test_renderer_escapes_untrusted_content_and_builds_subject() -> None:
 
     assert "&lt;script&gt;" in html
     assert "Summary &amp; analysis" in html
+    assert "Why this is relevant" in html
+    assert "Relevance score 8.0/10" in html
+    assert "high-priority development" in html
+    text = renderer.render_text(report)
+    assert "WHY THIS IS RELEVANT" in text
+    assert "relevance 8.0/10" in text
     subject = renderer.render_subject("Daily Report - {{ report_date }}", report)
     assert subject == "Daily Report - 2026-07-20"

@@ -18,11 +18,12 @@ On Windows, double-click `Setup-CyberDailyNews.cmd` once for first-time setup. I
 an isolated Python environment, installs the application, creates the ignored local
 configuration, initializes the database, and opens the dashboard. Later, double-click
 `Start-CyberDailyNews.cmd`.
-The localhost dashboard provides friendly controls for AI preference, executive prompts,
-scoring, company watchlists, email settings, collection, previews, rescoring, and reviewed
-delivery. Personal configuration remains in the ignored `config/ccip.local.yml` file.
-The main screen follows the daily **Collect → Preview → Review & Send** workflow; setup
-and administrative controls stay collapsed until needed.
+The localhost application separates daily analyst work from administration. It opens to
+an analyst workspace with the current email preview and the simple **Collect, then review,
+edit & send** workflow. Review supports adding outside articles, editing, reordering,
+removing, approving, or denying before delivery. **Setup & Administration** contains AI,
+scoring, watchlist, source, email, scheduling, and reliability controls. Personal
+configuration remains in the ignored `config/ccip.local.yml` file.
 
 Configuration is read from `config/ccip.yml`. Keep SMTP credentials out of source
 control and provide them with `CCIP_SMTP_USERNAME` and `CCIP_SMTP_PASSWORD`.

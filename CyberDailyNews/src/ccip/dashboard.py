@@ -11,23 +11,27 @@ import sys
 import threading
 import urllib.parse
 import webbrowser
-from datetime import date
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
 from typing import BinaryIO
+from zoneinfo import ZoneInfo
 
 import yaml
 
 from ccip.collection_status import load_collection_status, record_rescore_seconds
 from ccip.config import Settings, load_settings
 from ccip.db import Database, build_engine
+from ccip.domain import DailyReport
 from ccip.microsoft_copilot import (
     COPILOT_DELEGATED_PERMISSIONS,
     CopilotDeviceAuthenticator,
     DeviceSignIn,
     evaluate_copilot_readiness,
 )
+from ccip.rendering import ReportRenderer
+from ccip.reporting import DailyReportBuilder
 from ccip.repository import DeliveryRepository
 from ccip.summarization import check_ollama
 from ccip.windows_schedule import configure_windows_task
@@ -207,6 +211,45 @@ def _delivery_status(settings: Settings) -> dict[str, object]:
     }
 
 
+def _report_snapshot(settings: Settings) -> dict[str, object]:
+    database = Database(build_engine(settings.database.url, echo=settings.database.echo))
+    database.create_schema()
+    timezone = (
+        datetime.now().astimezone().tzinfo
+        if settings.report.timezone == "local"
+        else ZoneInfo(settings.report.timezone)
+    )
+    report_date = datetime.now(timezone).date()
+    report = DailyReportBuilder(
+        database,
+        max_items=settings.email.max_items,
+        timezone_name=settings.report.timezone,
+    ).build(report_date)
+    return {"report_date": report.report_date, "items": list(report.items)}
+
+
+def _report_panel(snapshot: dict[str, object] | None) -> str:
+    if not snapshot:
+        return ""
+    raw_items = snapshot.get("items")
+    items = raw_items if isinstance(raw_items, list) else []
+    if not items:
+        content = "<p>No articles are selected yet. Collect news to build today's report.</p>"
+    else:
+        rows = "".join(
+            '<li><a target="_blank" rel="noopener noreferrer" '
+            f'href="{html.escape(item.url, quote=True)}">{html.escape(item.title)}</a> '
+            f'<small>Score {item.score:.1f} · {html.escape(item.severity.value.title())}</small></li>'
+            for item in items
+        )
+        content = f"<ol>{rows}</ol>"
+    return (
+        '<section class="card health" aria-labelledby="report-title">'
+        f'<h2 id="report-title">Today\'s report · {html.escape(str(snapshot.get("report_date")))}</h2>'
+        f"{content}</section>"
+    )
+
+
 def _delivery_panel(status: dict[str, object] | None) -> str:
     if not status:
         return ""
@@ -275,6 +318,64 @@ def _setup_checklist(settings: Settings) -> str:
     )
 
 
+def _analyst_workspace(
+    settings: Settings,
+    token: str,
+    *,
+    message: str,
+    collection_status: dict[str, object] | None,
+    delivery_status: dict[str, object] | None,
+    report_snapshot: dict[str, object] | None,
+) -> bytes:
+    snapshot = report_snapshot or {}
+    raw_items = snapshot.get("items")
+    items = tuple(raw_items) if isinstance(raw_items, list) else ()
+    report_date = snapshot.get("report_date", date.today())
+    report = DailyReport(report_date, items)  # type: ignore[arg-type]
+    renderer = ReportRenderer(
+        settings.email.template_directory,
+        html_template=settings.email.html_template,
+        text_template=settings.email.text_template,
+    )
+    preview = html.escape(renderer.render_html(report), quote=True)
+    notice_style = "" if message else ' style="display:none"'
+    duplicate = bool(delivery_status and delivery_status.get("already_sent"))
+    sent_badge = (
+        '<span class="badge sent">Already sent today</span>'
+        if duplicate
+        else '<span class="badge draft">Draft</span>'
+    )
+    last_run = (
+        html.escape(str(collection_status.get("completed_at", "Not yet collected")))
+        if collection_status
+        else "Not yet collected"
+    )
+    status_url = json.dumps(f"/status?token={token}")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>Analyst Workspace | Cyber Daily News</title>
+    <style>*{{box-sizing:border-box}}body{{margin:0;background:#edf2f7;color:#172033;font:15px Arial,sans-serif}}
+    header{{background:#142b4a;color:white;padding:20px 4vw;display:flex;align-items:center;justify-content:space-between;gap:20px}}
+    h1{{margin:0 0 4px;font-size:25px}}header p{{margin:0;color:#c9d8e8}}nav a{{color:white;text-decoration:none;border:1px solid #7890aa;border-radius:6px;padding:9px 13px}}
+    main{{max-width:1380px;margin:auto;padding:22px}}.notice{{background:#dcf7e8;color:#14532d;padding:13px 16px;border-radius:8px;margin-bottom:16px}}
+    .toolbar{{background:white;border-radius:12px;padding:18px 20px;box-shadow:0 2px 10px #0001;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}}
+    .actions{{display:flex;gap:9px;flex-wrap:wrap}}button{{border:0;border-radius:6px;padding:11px 16px;font-weight:bold;cursor:pointer;background:#075da8;color:white;font:inherit}}button.good{{background:#087443}}button:disabled{{opacity:.55;cursor:wait}}
+    .badge{{display:inline-block;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:bold;margin-left:8px}}.draft{{background:#fff1c2;color:#704d00}}.sent{{background:#d9f2e5;color:#14532d}}
+    .workspace{{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px}}.preview{{background:white;border-radius:12px;padding:14px;box-shadow:0 2px 10px #0001}}iframe{{width:100%;height:76vh;border:1px solid #cbd5e1;border-radius:8px;background:white}}
+    .sidebar section{{background:white;border-radius:12px;padding:18px;box-shadow:0 2px 10px #0001;margin-bottom:14px}}.sidebar h2{{font-size:16px;margin:0 0 12px}}.sidebar p{{line-height:1.5;margin:7px 0}}small{{color:#5b6c80}}:focus-visible{{outline:3px solid #ffbf47;outline-offset:2px}}
+    @media(max-width:900px){{.workspace{{grid-template-columns:1fr}}iframe{{height:65vh}}}}</style></head><body>
+    <header><div><h1>Cyber Daily News</h1><p>Analyst workspace</p></div><nav><a href="/settings?token={token}">Setup &amp; Administration</a></nav></header>
+    <main><div class="notice" id="status" role="status" aria-live="polite"{notice_style}>{html.escape(message)}</div>
+    <section class="toolbar"><div><strong>Today&rsquo;s executive briefing</strong>{sent_badge}<br><small>{html.escape(str(report_date))} &bull; {len(items)} of {settings.email.max_items} article slots used</small></div>
+    <form method="post"><input type="hidden" name="token" value="{token}"><div class="actions workflow">
+    <button name="action" value="collect">Collect latest news</button><button name="action" value="review-send" class="good">Review, edit &amp; send</button></div></form></section>
+    <div class="workspace"><section class="preview" aria-labelledby="preview-title"><h2 id="preview-title">Email preview</h2><iframe title="Current email preview" srcdoc="{preview}"></iframe></section>
+    <aside class="sidebar"><section><h2>Draft status</h2><p><strong>{len(items)} articles selected</strong></p>{'<p>No articles are selected yet. Collect news to build today&rsquo;s briefing.</p>' if not items else ''}<p>Open review to add outside articles, edit content, change order, remove stories, approve, or deny.</p></section>
+    <section><h2>Collection</h2><p><strong>Last completed</strong><br>{last_run}</p><small>Collection runs separately from review, so your draft remains under human control.</small></section>
+    <section><h2>Delivery</h2><p>{'This report has already been delivered to the configured recipients.' if duplicate else 'Not yet sent today.'}</p></section></aside></div></main>
+    <script>let wasBusy=false;async function refreshStatus(){{try{{const r=await fetch({status_url});if(!r.ok)return;const s=await r.json();const n=document.getElementById('status');if(s.message){{n.textContent=s.message;n.style.display='block'}}document.querySelectorAll('.workflow button').forEach(b=>b.disabled=s.busy);if(wasBusy&&!s.busy){{location.reload();return}}wasBusy=s.busy}}catch(_error){{}}}}setInterval(refreshStatus,1000);refreshStatus();</script>
+    </body></html>""".encode()
+
+
 def render_dashboard(
     settings: Settings,
     token: str,
@@ -282,7 +383,18 @@ def render_dashboard(
     popup: str = "",
     collection_status: dict[str, object] | None = None,
     delivery_status: dict[str, object] | None = None,
+    report_snapshot: dict[str, object] | None = None,
+    view: str = "workspace",
 ) -> bytes:
+    if view == "workspace":
+        return _analyst_workspace(
+            settings,
+            token,
+            message=message,
+            collection_status=collection_status,
+            delivery_status=delivery_status,
+            report_snapshot=report_snapshot,
+        )
     def checked(value: bool) -> str:
         return " checked" if value else ""
     options = "".join(
@@ -312,8 +424,6 @@ def render_dashboard(
         f'<div class="notice" id="status" role="status" aria-live="polite"'
         f'{notice_style}>{html.escape(message)}</div>'
     )
-    health_panel = _health_panel(collection_status)
-    delivery_panel = _delivery_panel(delivery_status)
     setup_checklist = _setup_checklist(settings)
     popup_script = f"<script>alert({popup!r})</script>" if popup else ""
     status_url = json.dumps(f"/status?token={token}")
@@ -321,7 +431,7 @@ def render_dashboard(
     let wasBusy=false;async function refreshStatus(){{try{{const r=await fetch({status_url});if(!r.ok)return;
     const s=await r.json();const n=document.getElementById('status');
     if(s.message){{n.textContent=s.message;n.style.display='block';}}
-    const b=document.querySelector('button[value="collect"]');if(b)b.disabled=s.busy;
+    document.querySelectorAll('.workflow button').forEach(b=>b.disabled=s.busy);
     if(wasBusy&&!s.busy){{location.reload();return;}}wasBusy=s.busy;
     }}catch(_error){{}}}}
     setInterval(refreshStatus,1000);refreshStatus();
@@ -329,7 +439,7 @@ def render_dashboard(
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Cyber Daily News</title><style>
     *{{box-sizing:border-box}}body{{margin:0;background:#eef2f7;color:#172033;font:15px Arial}}header{{background:#142b4a;color:white;padding:24px 5vw}}h1{{margin:0 0 6px}}main{{max-width:1200px;margin:auto;padding:22px}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}}.card{{background:white;padding:20px;border-radius:10px;box-shadow:0 2px 9px #0001}}label{{display:block;font-weight:bold;margin:12px 0 4px}}input,select,textarea{{width:100%;padding:9px;border:1px solid #adb9c9;border-radius:5px;font:inherit}}textarea{{resize:vertical}}.row{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}button{{border:0;border-radius:5px;padding:11px 15px;font-weight:bold;cursor:pointer;background:#075da8;color:white}}button.secondary{{background:#52647a}}button.good{{background:#087443}}button.warn{{background:#9a6700}}.actions{{display:flex;flex-wrap:wrap;gap:9px}}.notice{{background:#dff7e9;color:#14532d;padding:12px;border-radius:6px;margin-bottom:16px}}small{{color:#52647a}}@media(max-width:600px){{.row{{grid-template-columns:1fr}}}}
-    </style><style>.skip-link{{position:absolute;left:-9999px}}.skip-link:focus{{left:12px;top:12px;background:white;padding:10px;z-index:10}}:focus-visible{{outline:3px solid #ffbf47;outline-offset:2px}}.workflow{{margin-bottom:16px}}.settings>summary{{background:#fff;padding:16px;border-radius:10px;margin-bottom:16px}}.checklist li{{margin:6px 0}}</style></head><body><a class="skip-link" href="#main">Skip to main content</a>{popup_script}{status_script}<header><h1>Cyber Daily News</h1><div>Configuration, ranking, preview, and reviewed delivery</div></header><main id="main">{notice}{setup_checklist}<form method="post"><input type="hidden" name="token" value="{token}"><section class="card workflow" aria-labelledby="workflow-title"><h2 id="workflow-title">Daily workflow</h2><div class="actions"><button name="action" value="collect">1. Collect news</button><button name="action" value="preview">2. Preview email</button><button name="action" value="review-send" class="good">3. Review & Send</button></div></section>{health_panel}{delivery_panel}<details class="settings"><summary>Settings and administration</summary><div class="grid">
+    </style><style>.skip-link{{position:absolute;left:-9999px}}.skip-link:focus{{left:12px;top:12px;background:white;padding:10px;z-index:10}}:focus-visible{{outline:3px solid #ffbf47;outline-offset:2px}}.workflow{{margin-bottom:16px}}.settings>summary{{background:#fff;padding:16px;border-radius:10px;margin-bottom:16px}}.checklist li{{margin:6px 0}}header a{{color:white}}</style></head><body><a class="skip-link" href="#main">Skip to main content</a>{popup_script}{status_script}<header><h1>Setup &amp; Administration</h1><div>Configure Cyber Daily News &nbsp;&bull;&nbsp; <a href="/?token={token}">Return to analyst workspace</a></div></header><main id="main">{notice}{setup_checklist}<form method="post"><input type="hidden" name="token" value="{token}"><div class="grid">
     <section class="card"><h2>AI preference</h2><label>Provider</label><select name="provider">{options}</select>
     <small>No AI is always supported. Microsoft 365 Copilot setup is managed in its own panel below.</small>
     <label>Audience</label><input name="audience" value="{html.escape(settings.summarization.audience, quote=True)}">
@@ -365,10 +475,10 @@ def render_dashboard(
     <small>Windows runs this task even when the dashboard is closed. Time uses this computer's local timezone.</small></section>
     <section class="card"><h2>News sources</h2><p>Select the feeds included during collection.</p><input type="hidden" name="source_controls_present" value="yes"><details><summary>Choose sources</summary>{source_controls}</details></section>
     <section class="card"><h2>Collection reliability</h2><div class="row"><label>Retention days<input name="retention_days" type="number" min="30" max="3650" value="{settings.collection.retention_days}"></label><label>Retry attempts<input name="retry_attempts" type="number" min="0" max="5" value="{settings.collection.retry_attempts}"></label><label>Retry backoff seconds<input name="retry_backoff_seconds" type="number" min="0" max="30" step="0.1" value="{settings.collection.retry_backoff_seconds}"></label><label>Stale after days<input name="stale_after_days" type="number" min="1" max="365" value="{settings.collection.stale_after_days}"></label></div></section>
-    </div></details><div class="card" style="margin-top:16px"><div class="actions"><button name="action" value="save" class="good">Save settings</button><button name="action" value="rescore-apply" class="secondary">Rescore stored articles</button><a href="/backup?token={token}"><button type="button" class="secondary">Download settings backup</button></a><label style="margin:0"><span class="button-label">Restore settings</span><input id="restore-file" type="file" accept=".yml,.yaml" style="display:none"></label><button id="restore-submit" name="action" value="restore" type="submit" style="display:none">Restore</button><input id="backup-yaml" name="backup_yaml" type="hidden"></div><small>Backups never include an SMTP password.</small></div></form>
+    </div><div class="card" style="margin-top:16px"><div class="actions"><button name="action" value="save" class="good">Save settings</button><button name="action" value="rescore-apply" class="secondary">Rescore stored articles</button><a href="/backup?token={token}"><button type="button" class="secondary">Download settings backup</button></a><label style="margin:0"><span class="button-label">Restore settings</span><input id="restore-file" type="file" accept=".yml,.yaml" style="display:none"></label><button id="restore-submit" name="action" value="restore" type="submit" style="display:none">Restore</button><input id="backup-yaml" name="backup_yaml" type="hidden"></div><small>Backups never include an SMTP password.</small></div></form>
     <script>document.getElementById('restore-file').addEventListener('change',e=>{{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{{if(confirm('Replace local settings with this validated backup?')){{document.getElementById('backup-yaml').value=r.result;document.getElementById('restore-submit').click();}}}};r.readAsText(f);}});</script>
     <script>document.querySelector('form').addEventListener('submit',e=>{{if(e.submitter&&e.submitter.value==='collect'){{let n=document.querySelector('.notice');if(!n){{n=document.createElement('div');n.className='notice';document.querySelector('main').prepend(n)}}n.textContent='Collecting news…';}}}})</script></main></body></html>"""
-    return page.encode()
+    return page.replace("\ufffd", "...").encode()
 
 
 def run_dashboard(config_path: str | Path) -> None:
@@ -449,21 +559,30 @@ def run_dashboard(config_path: str | Path) -> None:
         def log_message(self, format: str, *args: object) -> None:
             return
 
-        def _page(self) -> None:
+        def _page(self, view: str | None = None) -> None:
+            settings = load_settings(path)
+            selected_view = view or (
+                "settings"
+                if urllib.parse.urlsplit(self.path).path == "/settings"
+                else "workspace"
+            )
             body = render_dashboard(
-                load_settings(path),
+                settings,
                 token,
                 str(state["message"] or ""),
                 str(state["popup"] or ""),
                 load_collection_status(),
-                _delivery_status(load_settings(path)),
+                _delivery_status(settings),
+                _report_snapshot(settings),
+                view=selected_view,
             )
             state["popup"] = ""
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
         def do_GET(self) -> None:  # noqa: N802
             if urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("token") != [token]: self.send_error(403); return
-            if urllib.parse.urlsplit(self.path).path == "/backup":
+            request_path = urllib.parse.urlsplit(self.path).path
+            if request_path == "/backup":
                 body = dashboard_config_backup(path)
                 self.send_response(200); self.send_header("Content-Type", "application/yaml"); self.send_header("Content-Disposition", 'attachment; filename="cyber-daily-news-settings.yml"'); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
             if urllib.parse.urlsplit(self.path).path == "/status":
@@ -479,10 +598,7 @@ def run_dashboard(config_path: str | Path) -> None:
             if form.get("token") != [token]: self.send_error(403); return
             action = _form_value(form, "action", "save")
             try:
-                if action in {
-                    "save", "collect", "preview", "rescore-apply", "review-send",
-                    "m365-sign-in",
-                }:
+                if action in {"save", "rescore-apply", "m365-sign-in", "ollama-check"}:
                     save_dashboard_config(path, form)
                 if action == "restore":
                     restore_dashboard_config(path, _form_value(form, "backup_yaml"))
@@ -501,7 +617,6 @@ def run_dashboard(config_path: str | Path) -> None:
                     else:
                         set_status("Starting news collection...", busy=True)
                         threading.Thread(target=collect_in_background, daemon=True).start()
-                elif action == "preview": state["message"] = command("preview", "--open")
                 elif action == "rescore-apply": state["message"] = command("rescore", "--apply")
                 elif action == "review-send": state["message"] = command("send", "--confirm-send", wait=False)
                 elif action == "m365-sign-in":
@@ -534,7 +649,9 @@ def run_dashboard(config_path: str | Path) -> None:
                     ).message
             except Exception as error:
                 state["message"] = f"Action failed: {error}"
-            self._page()
+            self._page("settings" if action in {
+                "save", "restore", "rescore-apply", "m365-sign-in", "ollama-check"
+            } else "workspace")
 
     port = 8765
     try:

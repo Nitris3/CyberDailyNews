@@ -217,8 +217,11 @@ entry exceeds `stale_after_days` are marked stale in Collection Health. Retentio
 old stored articles and rejects expired feed entries before processing, preventing them
 from being reintroduced by large catalogs.
 
-The dashboard begins with a setup checklist and the daily **Collect → Preview → Review &
-Send** workflow. Settings and administration are collapsed until needed. Keyboard users
+The application opens to a dedicated analyst workspace showing the current email exactly
+as it will be delivered. Analysts can collect news, then open **Review, edit & send** to
+add an outside article, edit or reorder stories, remove items, approve delivery, or deny
+the draft. Configuration stays on the separate **Setup & Administration** page, which
+includes the setup checklist. Keyboard users
 have a skip link and visible focus indicators; status changes use an ARIA live region.
 
 Database schema versions are recorded automatically when the application starts. This

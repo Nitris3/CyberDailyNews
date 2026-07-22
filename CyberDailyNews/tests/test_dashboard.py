@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -47,16 +48,27 @@ def test_dashboard_polling_disables_collection_while_background_job_runs() -> No
     page = render_dashboard(settings, "test-token").decode()
 
     assert "/status?token=test-token" in page
-    assert 'button[value="collect"]' in page
+    assert "querySelectorAll('.workflow button')" in page
     assert "b.disabled=s.busy" in page
+    assert "Analyst workspace" in page
+    assert "Email preview" in page
+    assert "Collect latest news" in page
+    assert "Review, edit &amp; send" in page
+    assert "Setup &amp; Administration" in page
+    assert "News sources" not in page
+
+
+def test_dashboard_keeps_configuration_on_separate_settings_page() -> None:
+    settings = load_settings(Path(__file__).parents[1] / "config" / "ccip.yml")
+
+    page = render_dashboard(settings, "test-token", view="settings").decode()
+
+    assert "Setup &amp; Administration" in page
+    assert "Return to analyst workspace" in page
     assert "News sources" in page
     assert 'name="enabled_source"' in page
-    assert "Daily workflow" in page
-    assert "1. Collect news" in page
-    assert "2. Preview email" in page
-    assert "3. Review & Send" in page
-    assert "Getting started" in page
-    assert "Skip to main content" in page
+    assert "Scoring" in page
+    assert "Email preview" not in page
 
 
 def test_dashboard_backup_removes_password_and_restore_validates(tmp_path: Path) -> None:
@@ -91,6 +103,19 @@ def test_dashboard_warns_when_todays_report_was_already_sent() -> None:
         },
     ).decode()
 
-    assert "Email delivery" in page
-    assert "already sent" in page
-    assert "credential will be requested" in page
+    assert "Already sent today" in page
+    assert "already been delivered" in page
+
+
+def test_dashboard_shows_empty_report_guidance() -> None:
+    settings = load_settings(Path(__file__).parents[1] / "config" / "ccip.yml")
+
+    page = render_dashboard(
+        settings,
+        "token",
+        report_snapshot={"report_date": date(2026, 7, 21), "items": []},
+    ).decode()
+
+    assert "Email preview" in page
+    assert "No articles are selected yet" in page
+    assert "Collect news to build today" in page
